@@ -583,38 +583,97 @@ function parsePatch(text) {
   return files;
 }
 
-function applyHunks(before, hunks) {
+/* Does this hunk fit at this line? Exact first; trim:true also forgives trailing
+   whitespace on the context and removed lines. Added lines never constrain a fit. */
+function hunkMatchAt(src, at, lines, { trim = false } = {}) {
+  let c = at;
+  for (const line of lines) {
+    const kind = line[0];
+    if (kind === "+") continue;
+    const text = line.slice(1);
+    const here = src[c];
+    if (here === undefined) return false;
+    if (here === text) {
+      c++;
+      continue;
+    }
+    if (trim && String(here).replace(/\s+$/, "") === text.replace(/\s+$/, "")) {
+      c++;
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
+function applyHunks(before, hunks, fuzz = 8) {
   const src = before.split("\n");
   const out = [];
   let cursor = 0;
   const report = [];
   for (const hunk of hunks) {
-    const start = Math.max(0, hunk.from - 1);
-    while (cursor < start && cursor < src.length) out.push(src[cursor++]);
-    let ok = true;
-    const taken = [];
-    for (const line of hunk.lines) {
-      const kind = line[0];
-      const text = line.slice(1);
-      if (kind === " " || kind === "-") {
-        if (src[cursor] !== text) {
-          ok = false;
-          break;
+    const want = Math.max(0, hunk.from - 1);
+    const noContext = !hunk.lines.some((l) => l[0] === " " || l[0] === "-");
+    let start = -1;
+    let how = "exact";
+    if (want >= cursor && want <= src.length && hunkMatchAt(src, want, hunk.lines)) start = want;
+    if (start === -1) {
+      for (let off = 1; off <= fuzz && start === -1; off++) {
+        for (const at2 of [want - off, want + off]) {
+          if (at2 >= cursor && at2 <= src.length && hunkMatchAt(src, at2, hunk.lines)) {
+            start = at2;
+            how = "moved " + (at2 < want ? "up" : "down") + " " + Math.abs(at2 - want) + " line(s)";
+            break;
+          }
         }
-        taken.push(src[cursor]);
-        cursor++;
-        if (kind === " ") out.push(text);
-      } else if (kind === "+") {
-        out.push(text);
       }
     }
-    if (!ok) {
-      /* put back whatever this hunk consumed and report it as a conflict */
-      cursor -= taken.length;
-      report.push({ from: hunk.from, conflict: true, expected: hunk.lines.filter((l) => l[0] === " " || l[0] === "-").map((l) => l.slice(1)).slice(0, 3) });
-    } else {
-      report.push({ from: hunk.from, conflict: false, added: hunk.lines.filter((l) => l[0] === "+").length, removed: hunk.lines.filter((l) => l[0] === "-").length });
+    if (start === -1) {
+      for (let off = 0; off <= fuzz && start === -1; off++) {
+        for (const at2 of [want - off, want + off]) {
+          if (at2 >= cursor && at2 <= src.length && hunkMatchAt(src, at2, hunk.lines, { trim: true })) {
+            start = at2;
+            how = "whitespace-tolerant" + (off ? ", " + off + " line(s) off" : "");
+            break;
+          }
+        }
+      }
     }
+    if (start === -1 && noContext) {
+      start = Math.max(cursor, Math.min(want, src.length));
+      how = "pure insert";
+    }
+    if (start === -1) {
+      /* never force a hunk: report where it should have gone and what is there instead */
+      report.push({
+        from: hunk.from,
+        conflict: true,
+        why: "no exact or nearby match within " + fuzz + " line(s)",
+        expected: hunk.lines.filter((l) => l[0] === " " || l[0] === "-").map((l) => l.slice(1)).slice(0, 3),
+        found: src.slice(want, want + 3).map((l) => (l === undefined ? "(end of file)" : l)),
+      });
+      continue;
+    }
+    while (cursor < start && cursor < src.length) out.push(src[cursor++]);
+    for (const line of hunk.lines) {
+      const kind = line[0];
+      if (kind === " ") {
+        out.push(src[cursor]);
+        cursor++;
+      } else if (kind === "-") {
+        cursor++;
+      } else {
+        out.push(line.slice(1));
+      }
+    }
+    report.push({
+      from: hunk.from,
+      conflict: false,
+      at: start + 1,
+      how,
+      added: hunk.lines.filter((l) => l[0] === "+").length,
+      removed: hunk.lines.filter((l) => l[0] === "-").length,
+    });
   }
   while (cursor < src.length) out.push(src[cursor++]);
   return { text: out.join("\n"), report };

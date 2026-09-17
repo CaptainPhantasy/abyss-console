@@ -933,9 +933,9 @@ function PatchReview({ found, onNote }) {
       report
         ? jsxRuntime.jsx("div", { style: { marginTop: 8 }, children: report.files.map((f) =>
             jsxRuntime.jsxs("div", { style: { fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: f.clean ? "#3FB950" : "var(--coral)" }, children: [
-              f.path + (f.clean ? " — every hunk lines up" : " — conflicts, left untouched"),
+              f.path + (f.clean ? " — every hunk lines up" + (f.report.some((r2) => r2.how && r2.how !== "exact") ? " (some had drifted — they landed where the code is now, not where the diff said)" : "") : " — conflicts, left untouched"),
               !f.clean
-                ? jsxRuntime.jsx("pre", { style: { ...STYLES.pre, marginTop: 4, fontSize: 10.5 }, children: f.report.filter((r2) => r2.conflict).map((r2) => "hunk at line " + r2.from + " expected:\n  " + (r2.expected || []).join("\n  ")).join("\n") })
+                ? jsxRuntime.jsx("pre", { style: { ...STYLES.pre, marginTop: 4, fontSize: 10.5 }, children: f.report.filter((r2) => r2.conflict).map((r2) => "hunk at line " + r2.from + (r2.why ? " — " + r2.why : "") + " expected:\n  " + (r2.expected || []).join("\n  ") + (r2.found && r2.found.length ? "\nfound instead:\n  " + r2.found.join("\n  ") : "")).join("\n") })
                 : null,
             ] }, f.path)) })
         : null,
