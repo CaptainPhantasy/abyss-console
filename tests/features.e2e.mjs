@@ -193,6 +193,10 @@ srv.listen(8899, "127.0.0.1", async () => {
     check("A15 the two compare actions explain themselves", a15.cmp && a15.rev && a15.label, JSON.stringify(a15));
     const a11 = await value("(() => { const t=document.body.innerText; const btns=[...document.querySelectorAll('button')].map((x)=>(x.textContent||'').trim()); return JSON.stringify({ meter: /(today|project) \\$/.test(t), est: btns.includes('cost ▾'), chip: /send ≈ /.test(t), sigma: /Σ /.test(t) }); })()");
     check("A11 one cost number, the rest behind a click", a11.meter && a11.est && !a11.chip && !a11.sigma, JSON.stringify(a11));
+    await click("^sent ▾$");
+    await sleep(700);
+    const a20 = await value("(() => { const t=document.body.innerText; return JSON.stringify({ panel: /exactly what left the machine/.test(t), body: /\"messages\"/.test(t), copy: [...document.querySelectorAll('button')].some((x)=>(x.textContent||'').trim()==='copy') }); })()");
+    check("A20 the sent-request inspector shows the body", a20.panel && a20.body && a20.copy, JSON.stringify(a20));
 
     /* F9 — pinned context in the cached prefix, and the meter */
     const before = seen.length;

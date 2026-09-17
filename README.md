@@ -163,6 +163,9 @@ the scrubber can be switched off in Settings. What it catches is listed in the u
 - **trace…** — paste a stack trace or failing output; the page pulls the paths out of it, matches
   them against the indexed project, and either attaches exactly those files or hands the lot to the
   model with a request for a patch.
+- **sent ▾** — the last five request bodies exactly as they went out (after scrubbing): model,
+  message and tool counts, the full JSON, and a copy button each. The answer to "why did it answer
+  that" without reading storage by hand.
 
 ## Sessions and recipes
 
