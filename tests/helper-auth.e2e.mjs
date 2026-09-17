@@ -8,12 +8,18 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { readFileSync, rmSync } from "node:fs";
+import { readFileSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { request } from "node:http";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
 const PORT = 8792;
-const AUTH = "/tmp/abyss-helper-auth-token";
+const LAB = mkdtempSync(join(tmpdir(), "abyss-helper-auth-"));
+const AUTH = join(LAB, "token");
+const ISOLATE = join(LAB, "isolate.cjs");
+writeFileSync(ISOLATE, `require('node:os').homedir = () => ${JSON.stringify(LAB)}; require('node:module').syncBuiltinESMExports();`);
+writeFileSync(join(LAB, "README.md"), "abyss-console test fixture");
 
 let child = null;
 let token = "";
@@ -39,12 +45,9 @@ const json = (r) => {
 };
 
 before(async () => {
-  try {
-    rmSync(AUTH, { force: true });
-  } catch {}
-  child = spawn(process.execPath, [join(root, "abyss-bridge.mjs"), "--port", String(PORT), "--page", join(root, "dist/deepseek-api-console.html")], {
+  child = spawn(process.execPath, ["--require", ISOLATE, join(root, "abyss-bridge.mjs"), "--port", String(PORT), "--page", join(root, "dist/deepseek-api-console.html")], {
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, ABYSS_TOKEN_FILE: AUTH },
+    env: { ...process.env, ABYSS_TOKEN_FILE: AUTH, ROOM_BRIDGE: join(LAB, "no-room-bridge.mjs"), ABYSS_NO_FD: "1" },
   });
   const up = Date.now() + 15000;
   for (;;) {
@@ -113,15 +116,48 @@ test("a foreign origin is refused even with the right token", async () => {
 
 test("preflight from a foreign origin is not allowed", async () => {
   const r = await call("/run", { method: "OPTIONS", origin: "https://evil.example" });
-  assert.equal(r.status, 204);
+  assert.equal(r.status, 403);
   assert.equal(r.headers.get("access-control-allow-origin"), null, "no allow-origin for strangers");
 });
 
-test("preflight from loopback is allowed", async () => {
+test("preflight from the helper's own origin is allowed", async () => {
   const r = await call("/run", { method: "OPTIONS", origin: "http://127.0.0.1:" + PORT });
   assert.equal(r.status, 204);
-  assert.equal(r.headers.get("access-control-allow-origin"), "*");
-  assert.match(r.headers.get("access-control-allow-headers") || "", /x-abyss-token/, "the token header must survive preflight");
+  assert.equal(r.headers.get("access-control-allow-origin"), null);
+  assert.match(r.headers.get("access-control-allow-headers"), /x-abyss-token/);
+});
+
+test("opaque and other local origins cannot read the injected token or run commands", async () => {
+  for (const origin of ["null", "http://127.0.0.1:8899", "http://localhost:8899"]) {
+    const page = await call("/", { origin });
+    assert.equal(page.status, 403, origin);
+    assert.ok(!page.text.includes(token));
+    assert.equal(page.headers.get("access-control-allow-origin"), null);
+    const command = await call("/run", { method: "POST", origin,
+      headers: { "x-abyss-token": token }, body: { cmd: "echo should-not-run", confirm: true } });
+    assert.equal(command.status, 403, origin);
+  }
+});
+
+test("DNS rebinding and cross-site embedding cannot expose the page token", async () => {
+  for (const headers of [{ host: "evil.example:" + PORT }, { "sec-fetch-site": "cross-site" }, { "sec-fetch-site": "same-site" }]) {
+    const r = await new Promise((resolve, reject) => {
+      const req = request(at("/"), { headers, timeout: 5000 }, (res) => {
+        let text = "";
+        res.on("data", (chunk) => text += chunk);
+        res.on("end", () => resolve({ status: res.statusCode, text }));
+      });
+      req.on("timeout", () => req.destroy(new Error("request timed out")));
+      req.on("error", reject);
+      req.end();
+    });
+    assert.equal(r.status, 403);
+    assert.ok(!r.text.includes(token));
+  }
+  const r = await call("/");
+  assert.equal(r.headers.get("cache-control"), "no-store");
+  assert.equal(r.headers.get("content-security-policy"), "frame-ancestors 'none'");
+  assert.equal(r.headers.get("cross-origin-resource-policy"), "same-origin");
 });
 
 test("with the token, a command runs", async () => {
@@ -136,8 +172,8 @@ test("with the token, a command runs", async () => {
   assert.match(b.stdout, /abyss-auth-ok/);
 });
 
-test("with the token, a disk read works (the served page's own path)", async () => {
-  const r = await call("/fs/read?path=" + encodeURIComponent(join(root, "README.md")), {
+test("with the token, a disk read works inside the isolated fixture", async () => {
+  const r = await call("/fs/read?path=" + encodeURIComponent(join(LAB, "README.md")), {
     headers: { "x-abyss-token": token },
   });
   assert.equal(r.status, 200);

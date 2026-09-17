@@ -24,8 +24,11 @@ Routes: `/` the page · `/health` · `/room/status` · `/room/servers` · `/room
 Everything except `/` and `/health` requires the helper's per-install token. It is generated
 once into `~/.abyss-console/token` (mode 0600; `ABYSS_TOKEN_FILE` overrides the path) and
 injected only into the page the helper serves — so calls from `http://127.0.0.1:8787/` just
-work, and a page from any other origin is refused, preflight included. A `file://` copy of the
+work, and a page from any other origin is refused, including other local ports and opaque
+origins, preflight included. The request host must also match the helper, and the token-bearing
+page cannot be framed or cached. A `file://` copy of the
 page carries no token and cannot use the helper's routes.
+When using `--port`, the served page connects to that same port automatically.
 
 ## Attachments
 
@@ -144,11 +147,12 @@ which hands your last exchange to the big model and asks it to be blunt about wh
 
 ## Secrets
 
-Everything that leaves the machine is scrubbed at the moment the request is assembled — the draft,
-attachments, pinned text and tool results alike — catching `sk-…` keys, AWS/GitHub/Slack/Google
+Text in chat requests is scrubbed at the moment the request is assembled — the draft,
+text attachments, pinned text, tool results, reasoning and replayed tool arguments alike — catching `sk-…` keys, AWS/GitHub/Slack/Google
 tokens, private key blocks, passwords in connection strings, and anything written as `api_key=…`,
 `password=…`, `token: …` or `Authorization: Bearer …`. The count appears above the composer, and
 the scrubber can be switched off in Settings. What it catches is listed in the unit test.
+This pattern-based scrubber does not inspect image contents or guarantee detection of every secret.
 
 ## The working set: forecast, comparison, pins, traces
 
