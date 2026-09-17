@@ -72,3 +72,32 @@ test('project search reports file lines and states result caps', async () => {
   assert.match(result, /total\.js:60:/);
   assert.doesNotMatch(result, /total\.js:61:/);
 });
+
+test('request history excludes current and legacy cost footers while keeping tool results', () => {
+  const source = app.slice(app.indexOf('Tn = (h, z) =>'), app.indexOf('    sendMessage = async'));
+  const ctx = vm.createContext({ i: { pinned: [] }, CHEATSHEET: '', MCP_CONTRACT_TEXT: '', todayIndiana: () => '2026-09-17', u: { verified: 'fixture' } });
+  vm.runInContext('const ' + source.trim().replace(/,$/, ';') + '\nglobalThis.build = Tn;', ctx);
+  const messages = ctx.build([
+    { role: 'assistant', content: 'normal answer' },
+    { role: 'assistant', content: 'display-only text', display: true },
+    { role: 'assistant', content: '**Cost of that turn** old footer' },
+    { role: 'tool', toolCallId: 'call_1', content: 'the actual tool result' },
+  ], 'next question');
+  assert.ok(!JSON.stringify(messages).includes('footer'));
+  assert.ok(!JSON.stringify(messages).includes('display-only'));
+  assert.ok(messages.some(m => m.content === 'normal answer'));
+  assert.ok(messages.some(m => m.role === 'tool' && m.tool_call_id === 'call_1'));
+});
+
+test('file proposals accept the taught heading and legacy filename but reject ordinary bold prose', () => {
+  const source = app.slice(app.indexOf('function fileBlocks('), app.indexOf('\nfunction ', app.indexOf('function fileBlocks(') + 1));
+  const ctx = vm.createContext({});
+  vm.runInContext(source, ctx);
+  for (const heading of ['### file: src/cart.js', '**src/cart.js**']) {
+    const files = ctx.fileBlocks(heading + '\n```js\nexport const sum = () => 1;\n```');
+    assert.equal(files.length, 1);
+    assert.equal(files[0].path, 'src/cart.js');
+    assert.equal(files[0].code, 'export const sum = () => 1;\n');
+  }
+  assert.equal(ctx.fileBlocks('**Here is the answer**\n```js\nexample\n```').length, 0);
+});
