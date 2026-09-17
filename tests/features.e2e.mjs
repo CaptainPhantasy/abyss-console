@@ -7,7 +7,7 @@
 */
 import { createServer } from "node:http";
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync } from "node:fs";
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,6 +29,14 @@ const LEGACY_TEXT = Array.from({ length: 25 }, (_, i) => "// old line " + (i + 1
 writeFileSync(LAB + "/src/legacy.js", LEGACY_TEXT);
 writeFileSync(LAB + "/check.js", "process.exit(1);\n");
 writeFileSync(LAB + "/src/big.js", "// a big line of source\n".repeat(700));
+/* a scratch git repo: the branch and the uncommitted list are real too */
+execFileSync("git", ["-C", LAB, "init", "-q"]);
+execFileSync("git", ["-C", LAB, "config", "user.email", "abyss-lane@example.invalid"]);
+execFileSync("git", ["-C", LAB, "config", "user.name", "Abyss Lane"]);
+writeFileSync(LAB + "/.gitignore", ".abyss-console/\ntoken\n");
+execFileSync("git", ["-C", LAB, "add", "-A"]);
+execFileSync("git", ["-C", LAB, "commit", "-q", "-m", "lane fixtures", "--no-verify"]);
+writeFileSync(LAB + "/src/wip.js", "export const wip = () => 0;\n");
 
 const seen = [];
 const seenFim = [];
@@ -355,6 +363,20 @@ srv.listen(MOCK_PORT, "127.0.0.1", async () => {
     const toolTexts = (lastReq.messages || []).filter((x) => x.role === "tool").map((x) => String(x.content)).join("\n");
     check("B2 search_project returns file:line hits", /checkout\.js:1/.test(toolTexts) && /cart\.js:1/.test(toolTexts), (toolTexts.match(/hits for[^\n]*/) || ["(no search result)"])[0]);
     check("B3 find_references names where a symbol is used", /references to "total"/.test(toolTexts) && /checkout\.js:1/.test(toolTexts), (toolTexts.match(/references to[^\n]*/) || ["(no references result)"])[0]);
+
+    /* A5/B9 — git: the panel on the page, and the branch plus changes in the context */
+    const sysB9 = String((((firstCall || {}).messages || [])[0] || {}).content || "");
+    check(
+      "B9 the branch and the uncommitted list ride in the request context",
+      /## GIT: branch \S+ at [0-9a-f]{7,}/.test(sysB9) && /uncommitted change/.test(sysB9) && /wip\.js/.test(sysB9),
+      (sysB9.match(/## GIT:[^\n]*/) || ["(no GIT line)"])[0].slice(0, 150),
+    );
+    const gitRow = await value("(() => { const t=document.body.innerText; const btns=[...document.querySelectorAll('button')].map((x)=>(x.textContent||'').trim()); return JSON.stringify({ row: /git · \\S+ at [0-9a-f]{7}/.test(t), changed: /· \\d+ changed/.test(t), stageAll: btns.includes('stage all'), chip: /\\?\\? src\\/wip\\.js/.test(t) }); })()");
+    check("A5 the git panel shows the branch and the change list", gitRow.row && gitRow.changed && gitRow.stageAll && gitRow.chip, JSON.stringify(gitRow));
+    await ab("eval", "(() => { const b=[...document.querySelectorAll('button')].find((x)=>(x.textContent||'').trim().endsWith('src/wip.js')); if(!b) return 'no'; b.click(); return 'ok'; })()");
+    await sleep(700);
+    const gitDiffOpen = await value("(() => /diff vs HEAD · src\\/wip\\.js/.test(document.body.innerText))()");
+    check("A5 a changed file opens its diff", gitDiffOpen === true, "diff panel open: " + gitDiffOpen);
 
     /* B1 — one click: apply, run, feed back, repeat; bounded, logged, stoppable */
     await click("apply & fix");

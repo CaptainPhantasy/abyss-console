@@ -117,6 +117,15 @@ re-index", and the **re-index** button in the project bar walks the folder again
   `find_references` (where a name is used, matching lines included — what makes a rename safe to do).
   The page runs them through the helper and returns the results as tool messages.
 
+## Git: status, diffs, staging, commits
+
+With a project indexed, the panels carry a git row: the branch and short head, the change list as
+chips (click one for its diff against HEAD), **refresh**, **stage all**, **stage this file** from
+inside the diff, and a commit box — the commit button is the explicit action, and the helper refuses
+to stage or commit without `confirm: true`. The same facts ride in every request: the system message
+carries `## GIT: branch <name> at <hash> · N uncommitted changes: <paths>`, so the model can see
+what is not committed yet.
+
 ## Writes, undo and running commands
 
 A reply that says `### file: <path>` and then a fenced block is treated as a proposal: a card

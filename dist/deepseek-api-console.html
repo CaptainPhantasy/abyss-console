@@ -1981,6 +1981,10 @@ function App() {
     [confirmUnpin, setConfirmUnpin] = React.useState(""),
     [stalePins, setStalePins] = React.useState([]),
     [projectStale, setProjectStale] = React.useState(false),
+    [gitStatus, setGitStatus] = React.useState(null),
+    [gitDiff, setGitDiff] = React.useState(null),
+    [gitMsg, setGitMsg] = React.useState(""),
+    [gitCommitMsg, setGitCommitMsg] = React.useState(""),
     [sessions, setSessions] = React.useState([]),
     [sessionName, setSessionName] = React.useState(""),
     [sessionQuery, setSessionQuery] = React.useState(""),
@@ -2143,12 +2147,22 @@ ${z.text}`,
     },
     Tn = (h, z) => {
       const pinnedText = (i.pinned || []).map((p2) => "\n\n## PINNED: " + p2.name + "\n" + p2.text).join("");
+      const gitText =
+        gitStatus && gitStatus.ok
+          ? "\n\n## GIT: branch " + gitStatus.branch + (gitStatus.head ? " at " + gitStatus.head : "") + " · " +
+            (gitStatus.clean
+              ? "no uncommitted changes"
+              : gitStatus.changed.length + " uncommitted change" + (gitStatus.changed.length === 1 ? "" : "s") + ": " +
+                gitStatus.changed.slice(0, 12).map((c2) => c2.path).join(", ") +
+                (gitStatus.changed.length > 12 ? " (+" + (gitStatus.changed.length - 12) + " more)" : ""))
+          : "";
       const A = [
           {
             role: "system",
             content:
               CHEATSHEET +
               pinnedText +
+              gitText +
               `
 
 ` +
@@ -2707,6 +2721,7 @@ ${z.text}`,
           shown.join("\n");
         setProject({ root: tree.root, count: tree.count, bytes: tree.bytes, sendable: sendable.length, tokens, files: tree.files, indexedAt: Date.now(), newest: tree.newest || 0 });
         setProjectStale(false);
+        await refreshGit(tree.root);
         if (i.verifyCmds && i.verifyCmds[tree.root]) setRunCmd(i.verifyCmds[tree.root]);
         setProjectMap(map);
         setProjectMsg(
@@ -3315,12 +3330,54 @@ ${z.text}`,
         setProjectMsg("the helper is not answering");
       }
     },
+    /* ---- git: status, diff, stage and commit go through the helper ---------- */
+    refreshGit = async (root2) => {
+      const where = root2 || (project && project.root);
+      if (!where) { setGitStatus(null); setGitMsg(""); return; }
+      try {
+        const r = await (await fetch(HELPER_URL + "/git/status?path=" + encodeURIComponent(where))).json();
+        setGitStatus(r && r.ok ? r : null);
+        setGitMsg(r && r.ok ? "" : (r && r.error) || "the helper is not answering");
+      } catch { setGitMsg("the helper is not answering"); }
+    },
+    showGitDiff = async (file, staged) => {
+      if (!project) return;
+      try {
+        const r = await (await fetch(HELPER_URL + "/git/diff?path=" + encodeURIComponent(project.root) + "&file=" + encodeURIComponent(file) + (staged ? "&staged=1" : ""))).json();
+        setGitDiff(r && r.ok
+          ? { file, staged: !!staged, text: r.text || "(no difference against HEAD)", truncated: !!r.truncated }
+          : { file, staged: !!staged, text: (r && r.error) || "could not read the diff", truncated: false });
+      } catch { setGitMsg("the helper is not answering"); }
+    },
+    stageFiles = async (files) => {
+      if (!project) return;
+      try {
+        const r = await (await fetch(HELPER_URL + "/git/stage", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path: project.root, files, confirm: true }) })).json();
+        setGitMsg(r && r.ok ? "staged " + (files && files.length ? files.join(", ") : "everything") : "could not stage: " + ((r && r.error) || "?"));
+        await refreshGit();
+      } catch { setGitMsg("the helper is not answering"); }
+    },
+    commitChanges = async () => {
+      if (!project) return;
+      const message = gitCommitMsg.trim();
+      if (!message) { setGitMsg("a commit needs a message"); return; }
+      try {
+        const r = await (await fetch(HELPER_URL + "/git/commit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path: project.root, message, confirm: true }) })).json();
+        if (r && r.ok) {
+          setGitMsg("committed " + r.hash + " — " + message);
+          setGitCommitMsg("");
+          setGitDiff(null);
+          await refreshGit();
+        } else setGitMsg("could not commit: " + ((r && r.error) || "?"));
+      } catch { setGitMsg("the helper is not answering"); }
+    },
     checkFresh = async () => {
       if (project && project.root) {
         try {
           const t2 = await (await fetch(HELPER_URL + "/fs/tree?limit=4000&path=" + encodeURIComponent(project.root))).json();
           if (t2 && !t2.error) setProjectStale((t2.newest || 0) > (project.newest || 0));
         } catch {}
+        await refreshGit(project.root);
       }
       await checkPins();
     },
@@ -4066,6 +4123,61 @@ ${z.text}`,
                             }),
                           ],
                         }),
+                        jsxRuntime.jsxs("div", {
+                          style: { ...STYLES.projectBar, marginTop: 8 },
+                          children: [
+                            jsxRuntime.jsx("span", {
+                              style: { color: "var(--kelp)", fontFamily: "'JetBrains Mono',monospace", whiteSpace: "nowrap" },
+                              children:
+                                "git · " +
+                                (gitStatus && gitStatus.ok
+                                  ? gitStatus.branch + " at " + gitStatus.head + (gitStatus.clean ? " · clean" : " · " + gitStatus.changed.length + " changed")
+                                  : gitMsg || "no repo in this project"),
+                            }),
+                            gitStatus && gitStatus.ok
+                              ? jsxRuntime.jsx("button", { style: STYLES.ghostBtn, title: "ask git again", onClick: () => refreshGit(), children: "refresh" })
+                              : null,
+                            gitStatus && gitStatus.ok && !gitStatus.clean
+                              ? jsxRuntime.jsx("button", { style: STYLES.ghostBtn, title: "stage every change — asks nothing, stages a lot; commit stays explicit", onClick: () => stageFiles([]), children: "stage all" })
+                              : null,
+                            gitStatus && gitStatus.ok
+                              ? gitStatus.changed.slice(0, 12).map((c2) =>
+                                  jsxRuntime.jsx(
+                                    "button",
+                                    {
+                                      style: { ...STYLES.chip, width: "auto", padding: "3px 10px", fontSize: 11, cursor: "pointer", borderColor: gitDiff && gitDiff.file === c2.path ? "var(--sonar)" : undefined },
+                                      title: "show this file's diff",
+                                      onClick: () => showGitDiff(c2.path, c2.xy[0] !== "?" && c2.xy[0] !== " "),
+                                      children: c2.xy + " " + c2.path,
+                                    },
+                                    c2.path,
+                                  ),
+                                )
+                              : null,
+                            gitStatus && gitStatus.ok && !gitStatus.clean
+                              ? jsxRuntime.jsxs("span", { style: { marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }, children: [
+                                  jsxRuntime.jsx("input", {
+                                    style: { ...STYLES.input, width: 220 },
+                                    placeholder: "commit message…",
+                                    value: gitCommitMsg,
+                                    onChange: (h) => setGitCommitMsg(h.target.value),
+                                    onKeyDown: (h) => h.key === "Enter" && commitChanges(),
+                                  }),
+                                  jsxRuntime.jsx("button", { style: STYLES.ghostBtn, disabled: !gitCommitMsg.trim(), onClick: () => commitChanges(), children: "commit" }),
+                                ] })
+                              : null,
+                          ],
+                        }),
+                        gitDiff
+                          ? jsxRuntime.jsxs("div", { style: STYLES.projectHits, children: [
+                              jsxRuntime.jsxs("div", { style: { display: "flex", gap: 8, alignItems: "center" }, children: [
+                                jsxRuntime.jsx("span", { style: { color: "var(--kelp)", fontFamily: "'JetBrains Mono',monospace", fontSize: 11 }, children: "diff vs HEAD · " + gitDiff.file + (gitDiff.truncated ? " · cut" : "") }),
+                                jsxRuntime.jsx("button", { style: STYLES.microBtn, title: "stage this file", onClick: () => stageFiles([gitDiff.file]), children: "stage this file" }),
+                                jsxRuntime.jsx("button", { style: { ...STYLES.trayX, marginLeft: "auto" }, title: "close the diff", onClick: () => setGitDiff(null), children: "×" }),
+                              ] }),
+                              jsxRuntime.jsx("pre", { style: { margin: "6px 0 0", maxHeight: 260, overflow: "auto", fontSize: 11.5, color: "var(--foam)", whiteSpace: "pre-wrap" }, children: gitDiff.text }),
+                            ] })
+                          : null,
                         journal &&
                           jsxRuntime.jsxs("div", {
                             style: STYLES.projectHits,
