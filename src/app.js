@@ -16,8 +16,24 @@
 
 const jsxRuntime = d, React = W, ReactDOM = Zc, createRoot = Tc;
 
+/* Attach the injected token only to this helper's exact origin, never a URL
+   that merely starts with it. A standalone page has no helper authority. */
+(() => {
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = (input, init = {}) => {
+    const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url, globalThis.location.href);
+    if (url.origin === HELPER_URL) {
+      const headers = new Headers(init.headers || (input && input.headers) || {});
+      const token = globalThis.__ABYSS_TOKEN;
+      if (token) headers.set("x-abyss-token", token);
+      return origFetch(input, { ...init, headers, redirect: "error" });
+    }
+    return origFetch(input, init);
+  };
+})();
+
 const API_BASE = "https://api.deepseek.com",
-  HELPER_URL = "http://127.0.0.1:8787",
+  HELPER_URL = globalThis.__ABYSS_TOKEN ? globalThis.location.origin : "http://127.0.0.1:8787",
   PRICES = {
     "deepseek-flash": { hit: 0.003, miss: 0.15, out: 0.6, hitP: 0.006, missP: 0.3, outP: 1.2 },
     "deepseek-v4-pro": { hit: 0.022, miss: 0.66, out: 1.98, hitP: 0.044, missP: 1.32, outP: 3.96 },
@@ -107,7 +123,7 @@ model_not_found => pre-July names retired. deepseek-v4-flash / deepseek-v4-flash
   MCP_CONTRACT_TEXT = `You are the assistant inside a DeepSeek API console. You are a DeepSeek platform specialist and builder.
 Non-negotiables:
 - You are an expert on everything in the DeepSeek cheat sheet above; cite its facts (prices, limits, rules) precisely and never invent numbers.
-- When asked to BUILD something (an app, script, page, agent, config, doc), deliver the COMPLETE artifact in fenced code blocks with the correct language tag — full implementation, zero placeholders, zero "..." elisions. Multiple files = multiple fenced blocks, each preceded by a bold filename line.
+- When asked to BUILD something (an app, script, page, agent, config, doc), deliver the COMPLETE artifact in fenced code blocks with the correct language tag — full implementation, zero placeholders, zero "..." elisions. Multiple files = multiple fenced blocks, each preceded by its own line \`### file: <path>\`.
 - Default all designs and generated code to the DeepSeek API (deepseek-flash unless the task genuinely needs v4-pro), applying the cheat sheet: static-prefix prompt ordering for cache hits, correct thinking/streaming/tool-round-trip handling, and cost math per million tokens.
 - Speak plainly: explain any technical term in the same sentence you use it. Lead with the outcome, then the detail.
 - If a fact could have drifted since the sheet's verification date, say so and recommend the Docs tab's live refresh.`,
@@ -292,10 +308,38 @@ async function callDeepSeek({
   signal: s,
   onDelta: u,
   tools: d,
+  scrub: sc,
 }) {
+  /* The one choke point: whatever the call sites built — history, pinned text, tool
+     results, attachments — nothing secret leaves the machine from here. */
+  const RG = globalThis.AbyRedact;
+  const fix = (q) => (sc === false || !RG ? String(q == null ? "" : q) : RG.redact(String(q)).text);
+  const fixContent = (q) =>
+    typeof q === "string"
+      ? fix(q)
+      : Array.isArray(q)
+        ? q.map((p2) => (p2 && p2.type === "text" && typeof p2.text === "string" ? { ...p2, text: fix(p2.text) } : p2))
+        : q;
+  const fixArguments = (args) => {
+    const walk = (value, key = "") => {
+      if (/^(api[_-]?key|secret|password|passwd|token|authorization|bearer)$/i.test(key) && value != null && value !== "") return "REDACTED";
+      if (typeof value === "string") return fix(value);
+      if (Array.isArray(value)) return value.map((v) => walk(v));
+      if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, walk(v, k)]));
+      return value;
+    };
+    try { return JSON.stringify(walk(JSON.parse(args))); } catch { return fix(args); }
+  };
+  const live = sc === false || !RG ? n : n.map((mm) => ({
+    ...mm, content: fixContent(mm.content),
+    ...(typeof mm.reasoning_content === "string" ? { reasoning_content: fix(mm.reasoning_content) } : {}),
+    ...(Array.isArray(mm.tool_calls) ? { tool_calls: mm.tool_calls.map((tool) => ({
+      ...tool, function: { ...tool.function, arguments: fixArguments(tool.function.arguments) },
+    })) } : {}),
+  }));
   const c = {
     model: t,
-    messages: n,
+    messages: live,
     stream: !0,
     stream_options: { include_usage: !0 },
     max_tokens: o,
@@ -412,12 +456,20 @@ function CodeBlock({ lang: e, code: t, apiKey: key, model: chosenModel }) {
     setBusy(true);
     setErr("");
     try {
+      const off = (() => {
+        try {
+          return JSON.parse(localStorage.getItem("deepseek_console:settings") || "{}").redact === false;
+        } catch {
+          return false;
+        }
+      })();
+      const clean = off || !globalThis.AbyRedact ? t : globalThis.AbyRedact.redact(String(t)).text;
       const res = await fetch(API_BASE + "/beta/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: "Bearer " + key },
         body: JSON.stringify({
           model: chosenModel && chosenModel.indexOf("pro") === -1 ? chosenModel : "deepseek-flash",
-          prompt: t,
+          prompt: clean,
           suffix: "",
           max_tokens: 220,
           temperature: 0.2,
@@ -740,9 +792,14 @@ function IdeaUnitTable({ unit }) {
    Everything here is a proposal until the button is pressed. */
 function fileBlocks(text) {
   const out = [];
-  const re = /(?:^|\n)#{2,4}\s*file:\s*([^\n`]+)\n+```[a-zA-Z0-9_-]*\n([\s\S]*?)```/g;
+  const re = /(?:^|\n)(?:#{2,4}\s*file:\s*([^\n`]+)|\*\*([^\n`*]+)\*\*)\n+```[a-zA-Z0-9_-]*\n([\s\S]*?)```/g;
   let m;
-  while ((m = re.exec(String(text || "")))) out.push({ path: m[1].trim(), code: m[2] });
+  while ((m = re.exec(String(text || "")))) {
+    const bold = m[2] ? m[2].trim() : "";
+    if (bold && !/^[\w./-]+\.\w+$/.test(bold)) continue; /* a bold line only counts when it looks like a filename */
+    const path = (m[1] || bold).trim();
+    if (path) out.push({ path, code: m[3] });
+  }
   return out;
 }
 
@@ -1203,7 +1260,7 @@ ${z.text}`,
           },
         ],
         F = h
-          .filter((U) => !U.error)
+          .filter((U) => !U.error && !U.display && !/^\*\*Cost of that turn\*\*/.test(String(U.content || "")))
           .flatMap((U) =>
             U.role === "tool"
               ? [{ role: "tool", tool_call_id: U.toolCallId, content: U.content }]
@@ -1370,6 +1427,32 @@ ${z.text}`,
               },
             },
           },
+          {
+            type: "function",
+            function: {
+              name: "search_project",
+              description:
+                "Plain-text search across the indexed project; returns file:line hits. Use it to find where something lives or how it is spelled before asking for files.",
+              parameters: {
+                type: "object",
+                properties: { pattern: { type: "string", description: "the text to look for" } },
+                required: ["pattern"],
+              },
+            },
+          },
+          {
+            type: "function",
+            function: {
+              name: "find_references",
+              description:
+                "Find the places a name is used across the indexed project (text-level; the matching lines come back). Use it before renaming or moving anything.",
+              parameters: {
+                type: "object",
+                properties: { name: { type: "string", description: "the exact name to find" } },
+                required: ["name"],
+              },
+            },
+          },
         ];
       }
       const forecastNow = estimateSend();
@@ -1391,6 +1474,7 @@ ${z.text}`,
         for (let step = 0; step < 8; step++) {
           const F = await callDeepSeek({
               apiKey: n,
+              scrub: i.redact !== false,
               model: i.model,
               messages: H,
               thinking: i.thinking,
@@ -1465,6 +1549,10 @@ ${z.text}`,
             let Fe;
             if (te.function.name === "read_project_files") {
               Fe = { status: "executed", result: await readProjectFiles(ne.paths) };
+            } else if (te.function.name === "search_project") {
+              Fe = { status: "executed", result: await searchProjectText(String(ne.pattern || ""), false) };
+            } else if (te.function.name === "find_references") {
+              Fe = { status: "executed", result: await searchProjectText(String(ne.name || ""), true) };
             } else if (te.function.name === "use_room") {
               const blockedByPlan = i.mcpGate === "PLAN";
               const needsPermission = i.mcpGate === "ASK ALWAYS" || (i.mcpGate === "ASK WHEN NEEDED" && readOnlyRoomTools.indexOf(ne.tool) === -1);
@@ -1549,6 +1637,7 @@ ${z.text}`,
               ...F2,
               {
                 role: "assistant",
+                display: !0,
                 content:
                 "**Cost of that turn** — forecast " + fmtCost(prev.usd) + " (" + prev.total.toLocaleString() + " tokens in, assuming " +
                 Math.round((prev.hitRatio || 0) * 100) + "% cache hits, and " + Math.min(Number(i.maxTokens) || 4000, 4000).toLocaleString() + " tokens out), actual " + fmtCost(turnCost) + " — " +
@@ -1754,6 +1843,26 @@ ${z.text}`,
             : "### " + f.path + "\n(not read: " + f.error + ")",
         )
         .join("\n\n");
+    },
+    searchProjectText = async (needle, asReferences) => {
+      const q = String(needle || "").trim().slice(0, 200);
+      if (!q) return asReferences ? "no name given" : "no search text given";
+      const r = await (
+        await fetch(HELPER_URL + "/fs/search?path=" + encodeURIComponent(project.root) + "&q=" + encodeURIComponent(q))
+      ).json();
+      if (!r.hits) return "the helper could not search: " + String(r.error || "");
+      if (!r.count) return (asReferences ? 'no references to "' + q + '"' : 'no matches for "' + q + '"') + " in this project";
+      const lines = r.hits
+        .slice(0, 60)
+        .map((h) => h.path + ":" + h.line + ": " + h.text)
+        .join("\n");
+      return (
+        (asReferences ? 'references to "' + q + '": ' : 'hits for "' + q + '": ') +
+        r.count +
+        (r.count > 60 ? " (showing the first 60)" : "") +
+        (r.count >= 200 ? " (capped at 200 — narrow the search)" : "") +
+        "\n" + lines
+      );
     },
     /* ---- the verify loop: run the project's own command, feed it back ------ */
     runVerify = async (cmd) => {
@@ -2085,7 +2194,7 @@ ${z.text}`,
       const run = async (model) => {
         try {
           const r = await callDeepSeek({
-            apiKey: n, model, messages: [{ role: "system", content: CHEATSHEET }, { role: "user", content: ask }],
+            apiKey: n, scrub: i.redact !== false, model, messages: [{ role: "system", content: CHEATSHEET }, { role: "user", content: ask }],
             thinking: false, temperature: 1.0, maxTokens: Math.min(Number(i.maxTokens) || 4000, 4000), onDelta: () => {},
           });
           const cost = r.usage ? await recordUsage(model, r.usage) : null;
@@ -2194,7 +2303,7 @@ ${z.text}`,
       setIdeaError("");
       try {
         const engine = globalThis.AbyRoi.createRoiEngine({
-          callApi: (opts) => callDeepSeek({ apiKey: n, ...opts }),
+          callApi: (opts) => callDeepSeek({ apiKey: n, ...opts, scrub: i.redact !== false }),
           recordUsage,
           cheatsheet: CHEATSHEET,
           today: todayIndiana,
@@ -2433,7 +2542,7 @@ ${z.text}`,
                 }),
               e === "chat" &&
                 (() => {
-                  const last = [...m].reverse().find((x) => x.role === "assistant" && !x.error && x.content);
+                  const last = [...m].reverse().find((x) => x.role === "assistant" && !x.error && x.content && !x.display && !/^\*\*Cost of that turn\*\*/.test(String(x.content)));
                   const blocks = last ? fileBlocks(last.content) : [];
                   const patch = last ? findPatch(last.content) : null;
                   if (patch) {

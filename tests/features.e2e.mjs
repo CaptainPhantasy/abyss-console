@@ -6,11 +6,22 @@
      node tests/features.e2e.mjs
 */
 import { createServer } from "node:http";
-import { readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { spawn } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 const PAGE = readFileSync(new URL("../dist/test-page.html", import.meta.url), "utf8");
-const LAB = "/tmp/final-lab2";
-rmSync(LAB, { recursive: true, force: true });
+const MOCK_PORT = Number(process.env.ABYSS_TEST_API_PORT || 8899);
+const LAB = mkdtempSync(join(tmpdir(), "abyss-features-"));
+const HELPER = "http://127.0.0.1:8793";
+const AUTH = join(LAB, "token");
+const ISOLATE = join(LAB, "isolate.cjs");
+writeFileSync(ISOLATE, `require('node:os').homedir = () => ${JSON.stringify(LAB)}; require('node:module').syncBuiltinESMExports();`);
+let HTOKEN = "";
+let helper;
+const hfetch = (url, opts = {}) =>
+  fetch(url, { ...opts, headers: { ...(opts.headers || {}), ...(HTOKEN ? { "x-abyss-token": HTOKEN } : {}) } });
 mkdirSync(LAB + "/src", { recursive: true });
 writeFileSync(LAB + "/src/checkout.js", "export const total = () => 0;\n");
 writeFileSync(LAB + "/src/cart.js", "export const sum = () => 0;\n");
@@ -18,6 +29,9 @@ writeFileSync(LAB + "/src/cart.js", "export const sum = () => 0;\n");
 const seen = [];
 const seenFim = [];
 const srv = createServer((req, res) => {
+  res.setHeader("access-control-allow-origin", HELPER);
+  res.setHeader("access-control-allow-headers", "content-type,authorization");
+  if (req.method === "OPTIONS") { res.writeHead(204).end(); return; }
   const u = new URL(req.url, "http://x");
   if (u.pathname === "/") { res.writeHead(200, { "content-type": "text/html" }); res.end(PAGE); return; }
   if (u.pathname === "/models") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ data: [{ id: "deepseek-flash" }, { id: "deepseek-v4-pro" }] })); return; }
@@ -36,7 +50,32 @@ const srv = createServer((req, res) => {
     req.on("end", () => {
       const b = JSON.parse(Buffer.concat(ch).toString() || "{}");
       seen.push(b);
-      const text = /finish this for me/.test(JSON.stringify(b.messages))
+      const msgs = b.messages || [];
+      const roles = msgs.map((x) => x.role);
+      const lastUser = [...msgs].reverse().find((x) => x.role === "user");
+      const lastUserText = String((lastUser && lastUser.content) || "");
+      if (/search the project for exports/.test(lastUserText) && !roles.includes("tool")) {
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        const c = (o) => res.write("data: " + JSON.stringify(o) + "\n\n");
+        c({ choices: [{ delta: { tool_calls: [
+          { index: 0, id: "call_s1", type: "function", function: { name: "search_project", arguments: JSON.stringify({ pattern: "export const" }) } },
+          { index: 1, id: "call_r1", type: "function", function: { name: "find_references", arguments: JSON.stringify({ name: "total" }) } },
+        ] }, finish_reason: null }] });
+        c({ choices: [{ delta: {}, finish_reason: "tool_calls" }] });
+        c({ choices: [], usage: { prompt_tokens: 1000, completion_tokens: 40, prompt_cache_hit_tokens: 900, prompt_cache_miss_tokens: 100 } });
+        res.write("data: [DONE]\n\n"); res.end();
+        return;
+      }
+      if (/write to a file please/.test(lastUserText)) {
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        const c = (o) => res.write("data: " + JSON.stringify(o) + "\n\n");
+        c({ choices: [{ delta: { content: "Here it is:\n\n**cart.js**\n```js\nexport const sum = () => 1;\n```\n" }, finish_reason: null }] });
+        c({ choices: [{ delta: {}, finish_reason: "stop" }] });
+        c({ choices: [], usage: { prompt_tokens: 1000, completion_tokens: 40, prompt_cache_hit_tokens: 900, prompt_cache_miss_tokens: 100 } });
+        res.write("data: [DONE]\n\n"); res.end();
+        return;
+      }
+      const text = /finish this for me/.test(lastUserText)
         ? "Sure:\n\n```js\nfunction count(items) {\n```\n"
         : b.model === "deepseek-v4-pro" ? "PRO says this" : "FLASH says this";
       res.writeHead(200, { "content-type": "text/event-stream" });
@@ -80,12 +119,28 @@ const value = async (js) => {
 const results = [];
 const check = (name, ok, detail) => { results.push(ok); console.log((ok ? "PASS " : "FAIL ") + name + (detail ? "  — " + detail : "")); };
 
-srv.listen(8899, "127.0.0.1", async () => {
+srv.listen(MOCK_PORT, "127.0.0.1", async () => {
   try {
-    await ab("open", "http://127.0.0.1:8899/");
+    helper = spawn(process.execPath, ["--require", ISOLATE, fileURLToPath(new URL("../abyss-bridge.mjs", import.meta.url)),
+      "--port", "8793", "--page", fileURLToPath(new URL("../dist/test-page.html", import.meta.url))], {
+      stdio: "ignore", env: { ...process.env, ABYSS_TOKEN_FILE: AUTH, ROOM_BRIDGE: join(LAB, "no-room.mjs"), ABYSS_NO_FD: "1" },
+    });
+    process.on("exit", () => helper.kill());
+    const deadline = Date.now() + 15000;
+    for (;;) {
+      try { if ((await fetch(HELPER + "/", { signal: AbortSignal.timeout(3000) })).ok) break; } catch {}
+      if (Date.now() > deadline) throw new Error("isolated helper did not start");
+      await sleep(100);
+    }
+    HTOKEN = readFileSync(AUTH, "utf8").trim();
+    if (process.argv.includes("--serve-only")) {
+      console.log(JSON.stringify({ page: HELPER + "/", project: LAB, mode: "manual browser check" }));
+      return;
+    }
+    await ab("open", HELPER + "/");
     await sleep(900);
     await ab("eval", `localStorage.setItem('deepseek_console:apikey', JSON.stringify('sk-stand-in'));
-      localStorage.setItem('deepseek_console:settings', JSON.stringify({ model:'deepseek-flash', thinking:false, effort:'high', maxTokens:8000, mcpOn:false, mcpUrl:'', mcpGate:'PLAN', mcpToken:'', redact:true, budgetUsd:0, panelsOpen:true, pinned:[{id:'p1', name:'guardrails.md', text:'house rule: never log secrets', tokens:9}] }));
+      localStorage.setItem('deepseek_console:settings', JSON.stringify({ model:'deepseek-flash', thinking:false, effort:'high', maxTokens:8000, mcpOn:false, mcpUrl:'', mcpGate:'PLAN', mcpToken:'', redact:true, budgetUsd:0, panelsOpen:true, pinned:[{id:'p1', name:'guardrails.md', text:'house rule: never log secrets — password=hunter2hunter2', tokens:12}] }));
       localStorage.removeItem('deepseek_console:daily'); localStorage.removeItem('deepseek_console:sessions'); location.reload(); 'x'`);
     await sleep(2200);
 
@@ -102,7 +157,7 @@ srv.listen(8899, "127.0.0.1", async () => {
     await typeInto("tags, comma, separated", "cart, money");
     await click("^save$");
     await sleep(1800);
-    const disk = await (await fetch("http://127.0.0.1:8787/lib")).json();
+    const disk = await (await hfetch(HELPER + "/lib")).json();
     check("F6 session and tags land on disk", (disk.sessions || []).some((x) => x.name === "cart session" && (x.tags || []).includes("money")), (disk.sessions || []).length + " sessions on disk");
     await click("^new$");
     await sleep(400);
@@ -129,6 +184,13 @@ srv.listen(8899, "127.0.0.1", async () => {
     await sleep(3500);
     const sys = (seen[seen.length - 1] || {}).messages?.[0]?.content || "";
     check("F9 the pin rides in the system message", sys.includes("PINNED: guardrails.md") && sys.includes("never log secrets"), (seen.length - before) + " call(s), system " + sys.length + " chars");
+    check("A2 the pinned secret is scrubbed before it leaves", !sys.includes("hunter2hunter2") && /REDACTED/.test(sys), /REDACTED/.test(sys) ? "redaction marker present" : "redaction marker MISSING");
+    check("A23 the build contract teaches the write-card format", sys.includes("### file: <path>"), sys.includes("### file:") ? "taught" : "NOT taught");
+    check(
+      "A22 the spend footer never rides into a request",
+      (((seen[seen.length - 1] || {}).messages) || []).every((x) => !/^\*\*Cost of that turn\*\*/.test(String(x.content || ""))),
+      "messages in the request: " + ((((seen[seen.length - 1] || {}).messages) || []).length),
+    );
     const meter = await value("(() => /cached after the first send · session hit-rate/.test(document.body.innerText) ? 'shown' : 'missing')()");
     check("F9 the cache meter sits next to the pins", meter === "shown", meter);
 
@@ -150,7 +212,31 @@ srv.listen(8899, "127.0.0.1", async () => {
     const chips = await value("(() => { const t=document.body.innerText; return JSON.stringify(Number((t.match(/file · (checkout|cart)\\.js/g)||[]).length)); })()");
     check("F10 those files attach to the next message", chips === 2, "chips: " + chips);
 
+    /* B2/B3 — the model can search the project and find references */
+    const beforeTools = seen.length;
+    await composer("search the project for exports");
+    await sleep(200);
+    await click("Send ↵");
+    await sleep(4500);
+    const firstCall = seen[beforeTools] || {};
+    const offered = ((firstCall.tools || []).map((x) => x.function && x.function.name)).join(",");
+    check("B2/B3 both project tools are offered", /search_project/.test(offered) && /find_references/.test(offered), "tools: " + offered);
+    const lastReq = seen[seen.length - 1] || {};
+    const toolTexts = (lastReq.messages || []).filter((x) => x.role === "tool").map((x) => String(x.content)).join("\n");
+    check("B2 search_project returns file:line hits", /checkout\.js:1/.test(toolTexts) && /cart\.js:1/.test(toolTexts), (toolTexts.match(/hits for[^\n]*/) || ["(no search result)"])[0]);
+    check("B3 find_references names where a symbol is used", /references to "total"/.test(toolTexts) && /checkout\.js:1/.test(toolTexts), (toolTexts.match(/references to[^\n]*/) || ["(no references result)"])[0]);
+
+    /* A23 — a bold-filename reply still gets the write card */
+    await composer("write to a file please");
+    await sleep(200);
+    await click("Send ↵");
+    await sleep(4000);
+    const wcard = await value("(() => { const t=document.body.innerText; return JSON.stringify({ card: /proposes writing 1 file/.test(t), name: /cart\\.js/.test(t) }); })()");
+    check("A23 the write card renders for the taught format", wcard.card && wcard.name, JSON.stringify(wcard));
+
     /* a code block can be finished by the cheap model (fill-in-the-middle) */
+    await click("^new$");
+    await sleep(600);
     await composer("finish this for me");
     await sleep(200);
     await click("Send ↵");
@@ -158,7 +244,7 @@ srv.listen(8899, "127.0.0.1", async () => {
     await click("finish it");
     await sleep(2500);
     const fim = await value("(() => { const t=document.body.innerText; return JSON.stringify({ shown: /THE MODEL CONTINUED IT WITH/.test(t), added: /return items\\.length/.test(t) }); })()");
-    check("Feature: fill-in-the-middle finishes a code block", fim.shown && fim.added && seenFim.length === 1 && /function count/.test(seenFim[0].prompt), "asked " + seenFim.length + " time(s), model " + (seenFim[0] || {}).model);
+    check("Feature: fill-in-the-middle finishes a code block", fim.shown && fim.added && seenFim.length === 1 && /function count/.test(seenFim[0].prompt), "asked " + seenFim.length + " time(s), model " + (seenFim[0] || {}).model + ", shown " + fim.shown + ", added " + fim.added + ", prompt " + String((seenFim[0] || {}).prompt || "").slice(0, 60).replace(/\n/g, "\\n"));
 
     /* a recipe is kept and put back in the composer */
     await ab("eval", "document.querySelectorAll('nav button')[3].click(); 'settings'");
@@ -167,7 +253,7 @@ srv.listen(8899, "127.0.0.1", async () => {
     await typeInto("the instruction text", "Short sentences. Name the file before each block.");
     await click("^keep$");
     await sleep(900);
-    const kept = await (await fetch("http://127.0.0.1:8787/lib")).json();
+    const kept = await (await hfetch(HELPER + "/lib")).json();
     check("Feature: recipes are kept, on disk too", (kept.recipes || []).some((x) => (x.tags || []).length >= 0 && x.text.includes("Short sentences")), (kept.recipes || []).length + " recipes on disk");
     await ab("eval", "(() => { const b=[...document.querySelectorAll('button')].find(x=>x.title==='put it in the composer'); if(!b) return 'no'; b.click(); return 'ok'; })()");
     await sleep(400);

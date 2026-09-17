@@ -18,6 +18,15 @@ Routes: `/` the page · `/health` · `/room/status` · `/room/servers` · `/room
 `/room/call` · `/mcp` (a plain MCP endpoint, so the page's gate and approval system works) ·
 `/fs/tree` · `/fs/read` · `/fs/search` · `/attach?path=…&ocr=1` · `/attach/folder?path=…`.
 
+Everything except `/` and `/health` requires the helper's per-install token. It is generated
+once into `~/.abyss-console/token` (mode 0600; `ABYSS_TOKEN_FILE` overrides the path) and
+injected only into the page the helper serves — so calls from `http://127.0.0.1:8787/` just
+work, and a page from any other origin is refused, including other local ports and opaque
+origins, preflight included. The request host must also match the helper, and the token-bearing
+page cannot be framed or cached. A `file://` copy of the
+page carries no token and cannot use the helper's routes.
+When using `--port`, the served page connects to that same port automatically.
+
 ## Attachments
 
 The paperclip in the composer opens the attach tray: choose files from the browser, or name a path
@@ -93,9 +102,10 @@ sent whole (≈ $0.0265 off-peak)").
   model which paths exist.
 - **search** runs a plain-text search across the project and lists `file:line` hits; clicking one
   attaches that file.
-- With a project indexed, the model is offered one extra tool, `read_project_files`, which it calls
-  with the paths it saw on the map. The page reads them through the helper and returns them as the
-  tool result — up to 24 files, 512 kB each, so a request cannot balloon.
+- With a project indexed, the model is offered three tools: `read_project_files` (the paths it saw on
+  the map, up to 24 files, 512 kB each), `search_project` (plain-text search, `file:line` hits) and
+  `find_references` (where a name is used, matching lines included — what makes a rename safe to do).
+  The page runs them through the helper and returns the results as tool messages.
 
 ## Writes, undo and running commands
 
@@ -122,10 +132,12 @@ hands your last question to the big model and asks it to be blunt about what is 
 
 ## Secrets
 
-Every message passes through the scrubber first: `sk-…` keys, AWS/GitHub/Slack/Google tokens,
-private key blocks, passwords in connection strings, and anything written as `api_key=…`,
+Text in chat requests is scrubbed at the moment the request is assembled — the draft,
+text attachments, pinned text, tool results, reasoning and replayed tool arguments alike — catching `sk-…` keys, AWS/GitHub/Slack/Google
+tokens, private key blocks, passwords in connection strings, and anything written as `api_key=…`,
 `password=…`, `token: …` or `Authorization: Bearer …`. The count appears above the composer, and
 the scrubber can be switched off in Settings. What it catches is listed in the unit test.
+This pattern-based scrubber does not inspect image contents or guarantee detection of every secret.
 
 ## The working set: forecast, comparison, pins, traces
 
