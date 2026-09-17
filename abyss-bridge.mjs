@@ -26,7 +26,7 @@
  * Security: every route except the page itself and /health requires the per-install
  * token (header x-abyss-token). It is generated once into ~/.abyss-console/token
  * (ABYSS_TOKEN_FILE overrides) and injected only into the page this helper serves;
- * browser requests from origins other than loopback are refused, preflight included.
+ * browser requests from other origins are refused, preflight included.
  */
 import { createServer } from "node:http";
 import { spawn, execFileSync } from "node:child_process";
@@ -54,13 +54,16 @@ const HELPER_TOKEN = (() => {
   try {
     const t = readFileSync(AUTH_FILE, "utf8").trim();
     if (t.length >= 16) return t;
-  } catch {}
+    throw new Error("the existing helper token is invalid; refusing to replace it");
+  } catch (err) {
+    if (err.code !== "ENOENT") throw err;
+  }
   const t = randomBytes(32).toString("hex");
   mkdirSync(dirname(AUTH_FILE), { recursive: true });
-  writeFileSync(AUTH_FILE, t + "\n", { mode: 0o600 });
+  writeFileSync(AUTH_FILE, t + "\n", { mode: 0o600, flag: "wx" });
   return t;
 })();
-const LOOPBACK_ORIGIN = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
+const HELPER_HOSTS = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`, `[::1]:${PORT}`]);
 const MAX_READ = 8 * 1024 * 1024; /* 8 MB of text per file, by default */
 /* When the page stops talking to us, we stop. launchd wakes us on the next connection. */
 const IDLE_EXIT = Number(flag("--idle-exit", process.env.ABYSS_IDLE_EXIT || 0)); /* seconds, 0 = never */
@@ -646,8 +649,7 @@ function tmpdirSafe() {
 
 /* ------------------------------------------------------------------ http */
 const CORS = {
-  "access-control-allow-origin": "*",
-  "access-control-allow-headers": "content-type,mcp-session-id,mcp-protocol-version",
+  "access-control-allow-headers": "content-type,x-abyss-token,mcp-session-id,mcp-protocol-version",
   "access-control-allow-methods": "GET,POST,OPTIONS",
   "access-control-expose-headers": "mcp-session-id",
 };
@@ -684,16 +686,13 @@ const server = createServer(async (req, res) => {
   });
   const url = new URL(req.url, "http://127.0.0.1");
 
-  /* Origin gate first: only this machine's own pages (loopback) or non-browser callers
-     (no origin) are in. Everything else is refused, preflight included. */
+  /* Trust only this helper's own origin. Other loopback ports and opaque origins
+     are other applications. Validate Host as well to reject DNS rebinding. */
+  const host = req.headers.host || "";
   const origin = req.headers.origin || "";
-  if (origin && origin !== "null" && !LOOPBACK_ORIGIN.test(origin)) {
-    if (req.method === "OPTIONS") {
-      res.writeHead(204, { "access-control-allow-methods": "GET,POST,OPTIONS" }).end();
-    } else {
-      logRun("auth-refused", url.pathname + " from origin " + origin);
-      json(res, 403, { error: "refused: the helper only answers its own page — origin " + origin + " is not allowed" });
-    }
+  if (!HELPER_HOSTS.has(host) || (origin && origin !== `http://${host}`) ||
+      ["cross-site", "same-site"].includes(req.headers["sec-fetch-site"])) {
+    json(res, 403, { error: "refused: the request host or origin is not this helper's own page" });
     return;
   }
   if (req.method === "OPTIONS") {
@@ -724,7 +723,9 @@ const server = createServer(async (req, res) => {
     const tokenScript = "<script>window.__ABYSS_TOKEN=" + JSON.stringify(HELPER_TOKEN) + ";</script>";
     let html = readFileSync(PAGE, "utf8");
     html = html.includes("<head>") ? html.replace("<head>", "<head>" + tokenScript) : tokenScript + html;
-    res.writeHead(200, { ...CORS, "content-type": "text/html; charset=utf-8" });
+    res.writeHead(200, { ...CORS, "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store", "content-security-policy": "frame-ancestors 'none'",
+      "x-frame-options": "DENY", "cross-origin-resource-policy": "same-origin" });
     res.end(html);
     return;
   }

@@ -6,22 +6,22 @@
      node tests/features.e2e.mjs
 */
 import { createServer } from "node:http";
-import { readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { spawn } from "node:child_process";
-import { homedir } from "node:os";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 const PAGE = readFileSync(new URL("../dist/test-page.html", import.meta.url), "utf8");
-/* the helper's token, when the hardened helper (A1) is the one running */
-const HTOKEN = (() => {
-  try {
-    return readFileSync(homedir() + "/.abyss-console/token", "utf8").trim();
-  } catch {
-    return "";
-  }
-})();
+const MOCK_PORT = Number(process.env.ABYSS_TEST_API_PORT || 8899);
+const LAB = mkdtempSync(join(tmpdir(), "abyss-features-"));
+const HELPER = "http://127.0.0.1:8793";
+const AUTH = join(LAB, "token");
+const ISOLATE = join(LAB, "isolate.cjs");
+writeFileSync(ISOLATE, `require('node:os').homedir = () => ${JSON.stringify(LAB)}; require('node:module').syncBuiltinESMExports();`);
+let HTOKEN = "";
+let helper;
 const hfetch = (url, opts = {}) =>
   fetch(url, { ...opts, headers: { ...(opts.headers || {}), ...(HTOKEN ? { "x-abyss-token": HTOKEN } : {}) } });
-const LAB = "/tmp/final-lab2";
-rmSync(LAB, { recursive: true, force: true });
 mkdirSync(LAB + "/src", { recursive: true });
 writeFileSync(LAB + "/src/checkout.js", "export const total = () => 0;\n");
 writeFileSync(LAB + "/src/cart.js", "export const sum = () => 0;\n");
@@ -29,6 +29,9 @@ writeFileSync(LAB + "/src/cart.js", "export const sum = () => 0;\n");
 const seen = [];
 const seenFim = [];
 const srv = createServer((req, res) => {
+  res.setHeader("access-control-allow-origin", HELPER);
+  res.setHeader("access-control-allow-headers", "content-type,authorization");
+  if (req.method === "OPTIONS") { res.writeHead(204).end(); return; }
   const u = new URL(req.url, "http://x");
   if (u.pathname === "/") { res.writeHead(200, { "content-type": "text/html" }); res.end(PAGE); return; }
   if (u.pathname === "/models") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ data: [{ id: "deepseek-flash" }, { id: "deepseek-v4-pro" }] })); return; }
@@ -104,12 +107,28 @@ const value = async (js) => {
 const results = [];
 const check = (name, ok, detail) => { results.push(ok); console.log((ok ? "PASS " : "FAIL ") + name + (detail ? "  — " + detail : "")); };
 
-srv.listen(8899, "127.0.0.1", async () => {
+srv.listen(MOCK_PORT, "127.0.0.1", async () => {
   try {
-    await ab("open", "http://127.0.0.1:8899/");
+    helper = spawn(process.execPath, ["--require", ISOLATE, fileURLToPath(new URL("../abyss-bridge.mjs", import.meta.url)),
+      "--port", "8793", "--page", fileURLToPath(new URL("../dist/test-page.html", import.meta.url))], {
+      stdio: "ignore", env: { ...process.env, ABYSS_TOKEN_FILE: AUTH, ROOM_BRIDGE: join(LAB, "no-room.mjs"), ABYSS_NO_FD: "1" },
+    });
+    process.on("exit", () => helper.kill());
+    const deadline = Date.now() + 15000;
+    for (;;) {
+      try { if ((await fetch(HELPER + "/", { signal: AbortSignal.timeout(3000) })).ok) break; } catch {}
+      if (Date.now() > deadline) throw new Error("isolated helper did not start");
+      await sleep(100);
+    }
+    HTOKEN = readFileSync(AUTH, "utf8").trim();
+    if (process.argv.includes("--serve-only")) {
+      console.log(JSON.stringify({ page: HELPER + "/", project: LAB, mode: "manual browser check" }));
+      return;
+    }
+    await ab("open", HELPER + "/");
     await sleep(900);
     await ab("eval", `localStorage.setItem('deepseek_console:apikey', JSON.stringify('sk-stand-in'));
-      localStorage.setItem('deepseek_console:settings', JSON.stringify({ model:'deepseek-flash', thinking:false, effort:'high', maxTokens:8000, mcpOn:false, mcpUrl:'', mcpGate:'PLAN', mcpToken:'', helperToken:${JSON.stringify(HTOKEN)}, redact:true, budgetUsd:0, panelsOpen:true, pinned:[{id:'p1', name:'guardrails.md', text:'house rule: never log secrets — password=hunter2hunter2', tokens:12}] }));
+      localStorage.setItem('deepseek_console:settings', JSON.stringify({ model:'deepseek-flash', thinking:false, effort:'high', maxTokens:8000, mcpOn:false, mcpUrl:'', mcpGate:'PLAN', mcpToken:'', redact:true, budgetUsd:0, panelsOpen:true, pinned:[{id:'p1', name:'guardrails.md', text:'house rule: never log secrets — password=hunter2hunter2', tokens:12}] }));
       localStorage.removeItem('deepseek_console:daily'); localStorage.removeItem('deepseek_console:sessions'); location.reload(); 'x'`);
     await sleep(2200);
 
@@ -126,7 +145,7 @@ srv.listen(8899, "127.0.0.1", async () => {
     await typeInto("tags, comma, separated", "cart, money");
     await click("^save$");
     await sleep(1800);
-    const disk = await (await hfetch("http://127.0.0.1:8787/lib")).json();
+    const disk = await (await hfetch(HELPER + "/lib")).json();
     check("F6 session and tags land on disk", (disk.sessions || []).some((x) => x.name === "cart session" && (x.tags || []).includes("money")), (disk.sessions || []).length + " sessions on disk");
     await click("^new$");
     await sleep(400);
@@ -206,7 +225,7 @@ srv.listen(8899, "127.0.0.1", async () => {
     await typeInto("the instruction text", "Short sentences. Name the file before each block.");
     await click("^keep$");
     await sleep(900);
-    const kept = await (await hfetch("http://127.0.0.1:8787/lib")).json();
+    const kept = await (await hfetch(HELPER + "/lib")).json();
     check("Feature: recipes are kept, on disk too", (kept.recipes || []).some((x) => (x.tags || []).length >= 0 && x.text.includes("Short sentences")), (kept.recipes || []).length + " recipes on disk");
     await ab("eval", "(() => { const b=[...document.querySelectorAll('button')].find(x=>x.title==='put it in the composer'); if(!b) return 'no'; b.click(); return 'ok'; })()");
     await sleep(400);

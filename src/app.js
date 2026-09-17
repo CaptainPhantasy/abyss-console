@@ -16,32 +16,24 @@
 
 const jsxRuntime = d, React = W, ReactDOM = Zc, createRoot = Tc;
 
-/* Every call to the local helper must carry the helper token. When the page is served
-   by the helper, window.__ABYSS_TOKEN is already set in it; a file:// copy can paste
-   the token into Settings. One wrapper here means no call site can forget the header. */
+/* Attach the injected token only to this helper's exact origin, never a URL
+   that merely starts with it. A standalone page has no helper authority. */
 (() => {
   const origFetch = globalThis.fetch;
-  const fromStorage = () => {
-    try {
-      return (JSON.parse(localStorage.getItem("deepseek_console:settings") || "{}") || {}).helperToken || "";
-    } catch {
-      return "";
-    }
-  };
   globalThis.fetch = (input, init = {}) => {
-    const url = typeof input === "string" ? input : (input && input.url) || "";
-    if (url.startsWith(HELPER_URL)) {
-      const headers = new Headers((init && init.headers) || {});
-      const token = globalThis.__ABYSS_TOKEN || fromStorage();
+    const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url, globalThis.location.href);
+    if (url.origin === HELPER_URL) {
+      const headers = new Headers(init.headers || (input && input.headers) || {});
+      const token = globalThis.__ABYSS_TOKEN;
       if (token) headers.set("x-abyss-token", token);
-      return origFetch(input, { ...init, headers });
+      return origFetch(input, { ...init, headers, redirect: "error" });
     }
     return origFetch(input, init);
   };
 })();
 
 const API_BASE = "https://api.deepseek.com",
-  HELPER_URL = "http://127.0.0.1:8787",
+  HELPER_URL = globalThis.__ABYSS_TOKEN ? globalThis.location.origin : "http://127.0.0.1:8787",
   PRICES = {
     "deepseek-flash": { hit: 0.003, miss: 0.15, out: 0.6, hitP: 0.006, missP: 0.3, outP: 1.2 },
     "deepseek-v4-pro": { hit: 0.022, miss: 0.66, out: 1.98, hitP: 0.044, missP: 1.32, outP: 3.96 },
@@ -160,7 +152,6 @@ Non-negotiables:
   projectBudgets: {},
   pinned: [],
     mcpToken: "",
-    helperToken: "",
   };
 async function storageGet(e) {
   try {
@@ -329,7 +320,23 @@ async function callDeepSeek({
       : Array.isArray(q)
         ? q.map((p2) => (p2 && p2.type === "text" && typeof p2.text === "string" ? { ...p2, text: fix(p2.text) } : p2))
         : q;
-  const live = sc === false || !RG ? n : n.map((mm) => ({ ...mm, content: fixContent(mm.content) }));
+  const fixArguments = (args) => {
+    const walk = (value, key = "") => {
+      if (/^(api[_-]?key|secret|password|passwd|token|authorization|bearer)$/i.test(key) && value != null && value !== "") return "REDACTED";
+      if (typeof value === "string") return fix(value);
+      if (Array.isArray(value)) return value.map((v) => walk(v));
+      if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, walk(v, k)]));
+      return value;
+    };
+    try { return JSON.stringify(walk(JSON.parse(args))); } catch { return fix(args); }
+  };
+  const live = sc === false || !RG ? n : n.map((mm) => ({
+    ...mm, content: fixContent(mm.content),
+    ...(typeof mm.reasoning_content === "string" ? { reasoning_content: fix(mm.reasoning_content) } : {}),
+    ...(Array.isArray(mm.tool_calls) ? { tool_calls: mm.tool_calls.map((tool) => ({
+      ...tool, function: { ...tool.function, arguments: fixArguments(tool.function.arguments) },
+    })) } : {}),
+  }));
   const c = {
     model: t,
     messages: live,
@@ -2290,7 +2297,7 @@ ${z.text}`,
       setIdeaError("");
       try {
         const engine = globalThis.AbyRoi.createRoiEngine({
-          callApi: (opts) => callDeepSeek({ apiKey: n, ...opts }),
+          callApi: (opts) => callDeepSeek({ apiKey: n, ...opts, scrub: i.redact !== false }),
           recordUsage,
           cheatsheet: CHEATSHEET,
           today: todayIndiana,
@@ -3948,12 +3955,6 @@ ${z.text}`,
                               children: "use as the MCP endpoint",
                             }),
                           ],
-                        }),
-                        jsxRuntime.jsx("input", {
-                          style: { ...STYLES.input, marginTop: 8 },
-                          placeholder: "helper token — cat ~/.abyss-console/token (needed only for a file:// copy of this page)",
-                          value: i.helperToken || "",
-                          onChange: (h) => K({ helperToken: h.target.value }),
                         }),
                         helperMsg
                           ? jsxRuntime.jsx("div", {
