@@ -89,6 +89,15 @@ const srv = createServer((req, res) => {
         res.write("data: [DONE]\n\n"); res.end();
         return;
       }
+      if (freshTurn && /rewrite the big file/.test(lastUserText)) {
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        const c = (o) => res.write("data: " + JSON.stringify(o) + "\n\n");
+        c({ choices: [{ delta: { content: "Rewritten:\n\n### file: " + LAB + "/src/big.js\n```js\n// short now\n```\n" }, finish_reason: null }] });
+        c({ choices: [{ delta: {}, finish_reason: "stop" }] });
+        c({ choices: [], usage: { prompt_tokens: 1000, completion_tokens: 40, prompt_cache_hit_tokens: 900, prompt_cache_miss_tokens: 100 } });
+        res.write("data: [DONE]\n\n"); res.end();
+        return;
+      }
       if (/write to a file please/.test(lastUserText)) {
         res.writeHead(200, { "content-type": "text/event-stream" });
         const c = (o) => res.write("data: " + JSON.stringify(o) + "\n\n");
@@ -473,6 +482,24 @@ srv.listen(MOCK_PORT, "127.0.0.1", async () => {
     await sleep(2600);
     const wdiff = await value("(() => { const t=document.body.innerText; return JSON.stringify({ del: /− \\/\\/ old line 1/.test(t), add: /\\+ export const legacy/.test(t), nudge: /removes 25 lines/.test(t), err: /could not read/.test(t) || /not answering/.test(t) }); })()");
     check("A4 the card shows a real diff and flags a big rewrite", wdiff.del && wdiff.add && wdiff.nudge, JSON.stringify(wdiff));
+
+    /* B5 — a whole-file write to a big file asks twice */
+    await composer("rewrite the big file");
+    await sleep(200);
+    await click("Send ↵");
+    await sleep(4000);
+    await ab("eval", `(() => { const card=[...document.querySelectorAll('div')].find((x)=>/^This reply proposes writing/.test((x.textContent||'').trim()) && /big\\.js/.test(x.textContent||'')); if(!card) return 'no-card'; const b=[...card.querySelectorAll('button')].find((x)=>(x.textContent||'').trim()==='compare'); if(!b) return 'no-compare'; b.click(); return 'ok'; })()`);
+    await sleep(2600);
+    const bigBefore = readFileSync(LAB + "/src/big.js", "utf8").split("\n").length;
+    await ab("eval", `(() => { const card=[...document.querySelectorAll('div')].find((x)=>/^This reply proposes writing/.test((x.textContent||'').trim()) && /big\\.js/.test(x.textContent||'')); if(!card) return 'no-card'; const b=[...card.querySelectorAll('button')].find((x)=>(x.textContent||'').trim()==='write'); if(!b) return 'no-write'; b.click(); return 'ok'; })()`);
+    await sleep(900);
+    const armedTxt = await value("(() => { const t=document.body.innerText; return JSON.stringify({ armed: /write anyway \\(removes \\d+\\)/.test(t), note: /would remove \\d+ of them/.test(t) }); })()");
+    const bigMid = readFileSync(LAB + "/src/big.js", "utf8").split("\n").length;
+    check("B5 a big whole-file write asks twice before it touches the file", armedTxt.armed && armedTxt.note && bigMid === bigBefore, JSON.stringify(armedTxt) + " — lines " + bigBefore + " → " + bigMid);
+    await ab("eval", "(() => { const b=[...document.querySelectorAll('button')].find((x)=>/^write anyway /.test((x.textContent||'').trim())); if(!b) return 'no'; b.click(); return 'ok'; })()");
+    await sleep(1200);
+    const bigAfter = readFileSync(LAB + "/src/big.js", "utf8").split("\n").length;
+    check("B5 the second press does write", bigAfter < 10, "big.js is now " + bigAfter + " lines");
 
     /* A8/A9 — the map says when files changed; a pin says when its file changed */
     writeFileSync(LAB + "/src/fresh.js", "export const fresh = () => 1;\n");

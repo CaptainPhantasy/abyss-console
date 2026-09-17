@@ -140,6 +140,10 @@ already exist (the patch card checks and applies it hunk by hunk — a hunk that
 a hunk that fits nowhere near is refused with what it expected and what is there instead, never
 forced); `### file: <path>` — or a bold filename line — is the form for files that do not exist yet.
 
+A whole-file write to a big file (over 200 lines) that would remove more than 20 of them asks
+twice: the first press only arms the button — *write anyway (removes N)* — and says why, so a
+model that never saw the tail cannot silently drop it on one click.
+
 The verify bar runs a command in the project folder through the helper. The helper refuses to run
 anything unless the request says `confirm: true`, so nothing executes behind your back. The output
 and the exit code land in the chat as a message, which is what the model needs to fix a failure.

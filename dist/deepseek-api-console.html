@@ -1807,7 +1807,7 @@ function WriteReview({ blocks, onNote }) {
       }
       for (let k = e1; k < Math.min(beforeLines.length, e1 + 2); k++) out.push({ t: "ctx", text: beforeLines[k] });
       const shown = out.slice(0, 160);
-      patch(i, { state: "ready", diff: { added, removed, rows: shown, hidden: Math.max(0, out.length - shown.length), existed: before !== "" } });
+      patch(i, { state: "ready", diff: { added, removed, rows: shown, hidden: Math.max(0, out.length - shown.length), existed: before !== "", beforeLines: beforeLines.length } });
     } catch (err) {
       patch(i, { state: "error" });
       onNote("could not read " + rows[i].path + " to compare: " + String(err.message || err));
@@ -1815,6 +1815,12 @@ function WriteReview({ blocks, onNote }) {
   };
 
   const write = async (i) => {
+    const d2 = rows[i].diff;
+    if (d2 && d2.existed && d2.beforeLines > 200 && d2.removed > 20 && d2.removed > d2.added && rows[i].state !== "armed") {
+      patch(i, { state: "armed" });
+      onNote(rows[i].path + " has " + d2.beforeLines + " lines on disk and this whole-file write would remove " + d2.removed + " of them. Press write again if you mean it, or send a diff instead.");
+      return;
+    }
     patch(i, { state: "writing" });
     try {
       const res = await (
@@ -1892,7 +1898,7 @@ function WriteReview({ blocks, onNote }) {
                   : null,
                 jsxRuntime.jsx("span", { style: { marginLeft: "auto", display: "flex", gap: 6 } , children: [
                   jsxRuntime.jsx("button", { style: STYLES.microBtn, disabled: r.state === "comparing", onClick: () => compare(i), children: r.state === "ready" ? "compare again" : "compare" }),
-                  jsxRuntime.jsx("button", { style: STYLES.microBtn, disabled: r.state === "writing", onClick: () => write(i), children: r.state === "written" ? "written ✓" : "write" }),
+                  jsxRuntime.jsx("button", { style: STYLES.microBtn, disabled: r.state === "writing", onClick: () => write(i), children: r.state === "written" ? "written ✓" : r.state === "armed" ? "write anyway (removes " + ((r.diff && r.diff.removed) || 0) + ")" : "write" }),
                   r.state === "written" || r.state === "undone"
                     ? jsxRuntime.jsx("button", { style: STYLES.microBtn, onClick: () => undo(i), children: "undo" })
                     : null,
@@ -3893,13 +3899,13 @@ ${z.text}`,
                   if (patch) {
                     return jsxRuntime.jsx("div", {
                       style: { padding: "0 26px 8px" },
-                      children: jsxRuntime.jsx(PatchReview, { found: patch, onNote: (msg) => M(msg), key: m.length }),
+                      children: jsxRuntime.jsx(PatchReview, { found: patch, onNote: (msg) => { M(msg); setProjectMsg(msg); }, key: m.length }),
                     });
                   }
                   return blocks.length
                     ? jsxRuntime.jsx("div", {
                         style: { padding: "0 26px 8px" },
-                        children: jsxRuntime.jsx(WriteReview, { blocks, onNote: (msg) => M(msg), key: m.length }),
+                        children: jsxRuntime.jsx(WriteReview, { blocks, onNote: (msg) => { M(msg); setProjectMsg(msg); }, key: m.length }),
                       })
                     : null;
                 })(),
