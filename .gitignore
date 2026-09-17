@@ -1,0 +1,12 @@
+# local machine state — never published
+shots/
+assets/background-source.tiff
+
+# build outputs regenerated for tests only (the shipped page is dist/deepseek-api-console.html)
+dist/test-page.html
+dist/debug.html
+
+# OS noise
+.DS_Store
+*.log
+node_modules/

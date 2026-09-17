@@ -1,0 +1,29 @@
+/* The whale picture runs edge to edge behind everything; nothing sits in an opaque box.
+   The build script appends .abyss-art{background-image:url(data:image/webp;base64,...)} below. */
+
+html.abyss-art,
+body.abyss-art {
+  background-color: #04080f;
+  background-position: center center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  min-height: 100%;
+}
+
+/* A soft wash so the rail and the headline keep their contrast over a busy picture. */
+body.abyss-art::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    linear-gradient(90deg, rgba(3, 7, 13, 0.74) 0%, rgba(3, 7, 13, 0.44) 34%, rgba(3, 7, 13, 0.08) 64%, rgba(3, 7, 13, 0.36) 100%),
+    radial-gradient(1100px 620px at 10% -6%, rgba(3, 7, 13, 0.6), rgba(3, 7, 13, 0) 68%);
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+}
