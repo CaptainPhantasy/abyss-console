@@ -134,7 +134,9 @@ per line; the loop runs them in order, reports each one, and stops at the first 
 Above the composer: **today's spend against your daily budget** ("today $0.000048 of $0.5000",
 with a "nearly spent" note past 80%). When the budget is reached the page stops before calling: a
 red line explains it and **no request leaves the machine**. The counter is keyed to the date, so it
-resets tomorrow. Set the amount in Settings; `0` means no limit.
+resets tomorrow. This meter is the only always-visible cost number; **cost ▾** shows what the next
+send will cost, and each turn keeps its forecast-vs-actual line in the chat as the record. Set the
+amount in Settings; `0` means no limit.
 
 Next to it, three routing presets — **cheap & cheerful** (flash, thinking off), **everyday coding**
 (flash, thinking high), **hard reasoning** (v4-pro, thinking high) — and **second opinion from pro**,

@@ -191,6 +191,8 @@ srv.listen(8899, "127.0.0.1", async () => {
     check("F8 both answers side by side with a price each", cmpObj.both && cmpObj.money >= 2, "price figures on screen: " + cmpObj.money + ", models asked: " + [...new Set(seen.map((b) => b.model))].join("+"));
     const a15 = await value("(() => { const ts=[...document.querySelectorAll('button')].map((x)=>x.title||''); return JSON.stringify({ cmp: ts.some((x)=>/flash and to pro side by side/.test(x)), rev: ts.some((x)=>/be blunt/.test(x)), label: /second opinion from pro/.test(document.body.innerText) }); })()");
     check("A15 the two compare actions explain themselves", a15.cmp && a15.rev && a15.label, JSON.stringify(a15));
+    const a11 = await value("(() => { const t=document.body.innerText; const btns=[...document.querySelectorAll('button')].map((x)=>(x.textContent||'').trim()); return JSON.stringify({ meter: /(today|project) \\$/.test(t), est: btns.includes('cost ▾'), chip: /send ≈ /.test(t), sigma: /Σ /.test(t) }); })()");
+    check("A11 one cost number, the rest behind a click", a11.meter && a11.est && !a11.chip && !a11.sigma, JSON.stringify(a11));
 
     /* F9 — pinned context in the cached prefix, and the meter */
     const before = seen.length;

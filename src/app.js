@@ -2963,7 +2963,7 @@ ${z.text}`,
                           }),
                           jsxRuntime.jsx("button", {
                             style: STYLES.ghostBtn,
-                            title: "what this send will cost, and what is in it",
+                            title: "what this send will cost — click for the token breakdown",
                             onClick: () => {
                               const e2 = estimateSend();
                               setProjectMsg(
@@ -2975,10 +2975,7 @@ ${z.text}`,
                               );
                               K({ panelsOpen: true });
                             },
-                            children: (() => {
-                              const e2 = estimateSend();
-                              return "send ≈ " + (e2.total / 1000).toFixed(1) + "k tok ≈ " + fmtCost(e2.usd);
-                            })(),
+                            children: "cost ▾",
                           }),
                           jsxRuntime.jsx("button", {
                             style: STYLES.ghostBtn,
@@ -4514,7 +4511,6 @@ ${z.text}`,
                   jsxRuntime.jsxs("span", { children: ["out ", jsxRuntime.jsx("b", { style: { color: "var(--foam)" }, children: y.out.toLocaleString() })] }),
                   jsxRuntime.jsxs("span", { children: ["calls ", jsxRuntime.jsx("b", { style: { color: "var(--foam)" }, children: y.calls })] }),
                   jsxRuntime.jsxs("span", { children: ["hit-rate ", jsxRuntime.jsxs("b", { style: { color: "var(--foam)" }, children: [$l, "%"] })] }),
-                  jsxRuntime.jsxs("span", { style: { color: "var(--amber)", fontSize: 13 }, children: ["Σ ", fmtCost(y.cost)] }),
                   jsxRuntime.jsx("span", {
                     title: Ul.note,
                     style: {
