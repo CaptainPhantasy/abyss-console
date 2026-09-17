@@ -157,7 +157,8 @@ the scrubber can be switched off in Settings. What it catches is listed in the u
   prints the actual and the difference. The hit ratio comes from the session's own cache record;
   a session with no history says "cold session — worst case" instead of pretending precision.
 - **compare flash vs pro** — the same question to both models at once, side by side, each with its
-  own price and token count, and a button to keep whichever answer you prefer.
+  own price and token count, and a button to keep whichever answer you prefer. While both calls run
+  the button becomes **cancel compare**, and stopping it leaves "cancelled" in both panels.
 - **Pinned context** — pin a file and its text is prepended to the system message, which is the
   cached part of the request: paid once, then a hit. The row shows the session hit-rate beside it.
 - **trace…** — paste a stack trace or failing output; the page pulls the paths out of it, matches

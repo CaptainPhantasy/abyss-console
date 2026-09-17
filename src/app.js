@@ -1165,6 +1165,7 @@ function App() {
     Qe = React.useRef(null),
     fileInput = React.useRef(null),
     loopCancel = React.useRef(!1),
+    cmpAbort = React.useRef(null),
     mRef = React.useRef([]);
   /* the fix loop awaits between rounds, so it reads messages from a ref, never a stale closure */
   mRef.current = m;
@@ -2317,21 +2318,30 @@ ${z.text}`,
       if (!n) { setProjectMsg("add your DeepSeek key in Settings first"); return; }
       setCompareBusy(true);
       setCompare({ ask, flash: null, pro: null, busy: true });
+      cmpAbort.current = new AbortController();
       const run = async (model) => {
         try {
           const r = await callDeepSeek({
             apiKey: n, scrub: i.redact !== false, model, messages: [{ role: "system", content: CHEATSHEET }, { role: "user", content: ask }],
             thinking: false, temperature: 1.0, maxTokens: Math.min(Number(i.maxTokens) || 4000, 4000), onDelta: () => {},
+            signal: cmpAbort.current.signal,
           });
           const cost = r.usage ? await recordUsage(model, r.usage) : null;
           return { text: r.content || "(empty)", cost: cost ? cost.cost : 0, usage: r.usage || {}, finish: r.finishReason };
         } catch (err) {
-          return { text: "failed: " + String(err.message || err), cost: 0, usage: {}, error: true };
+          const aborted = err && (err.name === "AbortError" || /abort/i.test(String(err.message || "")));
+          return { text: aborted ? "cancelled" : "failed: " + String(err.message || err), cost: 0, usage: {}, error: true };
         }
       };
       const [flash, pro] = await Promise.all([run("deepseek-flash"), run("deepseek-v4-pro")]);
       setCompare({ ask, flash, pro, busy: false });
       setCompareBusy(false);
+    },
+    cancelCompare = () => {
+      try {
+        cmpAbort.current && cmpAbort.current.abort();
+      } catch {}
+      setProjectMsg("cancelling the compare…");
     },
     useComparison = (which) => {
       const picked = compare && compare[which];
@@ -3245,10 +3255,9 @@ ${z.text}`,
                             ),
                         jsxRuntime.jsx("button", {
                           style: STYLES.ghostBtn,
-                          disabled: compareBusy,
-                          title: "send the same question to flash and to pro side by side, each with its own bill — use it when you have not asked yet",
-                          onClick: compareModels,
-                          children: compareBusy ? "comparing…" : "compare flash vs pro",
+                          title: "send the same question to flash and to pro side by side, each with its own bill — use it when you have not asked yet; while it runs, the same button cancels it",
+                          onClick: () => (compareBusy ? cancelCompare() : compareModels()),
+                          children: compareBusy ? "cancel compare" : "compare flash vs pro",
                         }),
                             jsxRuntime.jsx("span", { style: { marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }, children: [
                               jsxRuntime.jsxs("span", {

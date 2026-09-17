@@ -93,6 +93,20 @@ const srv = createServer((req, res) => {
         res.write("data: [DONE]\n\n"); res.end();
         return;
       }
+      if (/slow compare/.test(lastUserText)) {
+        const text = b.model === "deepseek-v4-pro" ? "PRO says this" : "FLASH says this";
+        setTimeout(() => {
+          try {
+            res.writeHead(200, { "content-type": "text/event-stream" });
+            const c = (o) => res.write("data: " + JSON.stringify(o) + "\n\n");
+            c({ choices: [{ delta: { content: text }, finish_reason: null }] });
+            c({ choices: [{ delta: {}, finish_reason: "stop" }] });
+            c({ choices: [], usage: { prompt_tokens: 1000, completion_tokens: 40, prompt_cache_hit_tokens: 900, prompt_cache_miss_tokens: 100 } });
+            res.write("data: [DONE]\n\n"); res.end();
+          } catch {}
+        }, 2500);
+        return;
+      }
       const text = /finish this for me/.test(lastUserText)
         ? "Sure:\n\n```js\nfunction count(items) {\n```\n"
         : b.model === "deepseek-v4-pro" ? "PRO says this" : "FLASH says this";
@@ -197,6 +211,16 @@ srv.listen(8899, "127.0.0.1", async () => {
     await sleep(700);
     const a20 = await value("(() => { const t=document.body.innerText; return JSON.stringify({ panel: /exactly what left the machine/.test(t), body: /\"messages\"/.test(t), copy: [...document.querySelectorAll('button')].some((x)=>(x.textContent||'').trim()==='copy') }); })()");
     check("A20 the sent-request inspector shows the body", a20.panel && a20.body && a20.copy, JSON.stringify(a20));
+    /* A14 — the compare pair can be cancelled mid-flight */
+    await composer("slow compare question");
+    await sleep(200);
+    await click("compare flash vs pro");
+    await sleep(700);
+    const midTxt = await value("(() => JSON.stringify({ cancel: [...document.querySelectorAll('button')].some((x)=>(x.textContent||'').trim()==='cancel compare') }))()");
+    await click("cancel compare");
+    await sleep(1200);
+    const afterTxt = await value("(() => { const t=document.body.innerText; return JSON.stringify({ cancelled: /cancelled/.test(t), back: [...document.querySelectorAll('button')].some((x)=>(x.textContent||'').trim()==='compare flash vs pro') }); })()");
+    check("A14 the compare pair cancels on demand", midTxt.cancel && afterTxt.cancelled && afterTxt.back, JSON.stringify({ mid: midTxt, after: afterTxt }));
 
     /* F9 — pinned context in the cached prefix, and the meter */
     const before = seen.length;
