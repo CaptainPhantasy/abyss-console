@@ -3853,8 +3853,13 @@ ${z.text}`,
                               jsxRuntime.jsx("input", {
                                 style: { ...STYLES.input, width: 150 },
                                 placeholder: "tags, comma, separated",
+                                list: "tag-hints",
                                 value: sessionTags,
                                 onChange: (h) => setSessionTags(h.target.value),
+                              }),
+                              jsxRuntime.jsx("datalist", {
+                                id: "tag-hints",
+                                children: [...new Set(sessions.flatMap((s2) => s2.tags || []))].map((tg) => jsxRuntime.jsx("option", { value: tg }, tg)),
                               }),
                             jsxRuntime.jsx("button", { style: STYLES.ghostBtn, onClick: () => saveSession(sessionName), children: "save" }),
                             jsxRuntime.jsx("button", {

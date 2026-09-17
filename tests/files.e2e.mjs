@@ -121,3 +121,18 @@ test("a cut listing says it was cut", async () => {
   assert.equal(t.body.truncated, true, "and the reply says the listing is not everything");
   assert.equal(t.body.shownCount, 5);
 });
+
+test("the project's own .gitignore is respected", async () => {
+  const G = join(LAB, "gitsem");
+  mkdirSync(G, { recursive: true });
+  writeFileSync(join(G, ".gitignore"), "ignored-dir/\n*.log\n");
+  writeFileSync(join(G, "keep.txt"), "keep\n");
+  writeFileSync(join(G, "skip.log"), "skip\n");
+  mkdirSync(join(G, "ignored-dir"), { recursive: true });
+  writeFileSync(join(G, "ignored-dir", "x.txt"), "x\n");
+  const t = await get("/fs/tree?path=" + encodeURIComponent(G));
+  const names = t.body.files.map((f) => f.path.split("/").pop());
+  assert.ok(names.includes("keep.txt"), "a kept file is there: " + names.join(","));
+  assert.ok(!names.includes("skip.log"), "*.log is ignored");
+  assert.ok(!names.includes("x.txt"), "ignored-dir/ is ignored");
+});

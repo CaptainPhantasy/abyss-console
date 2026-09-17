@@ -161,6 +161,8 @@ srv.listen(8899, "127.0.0.1", async () => {
     await sleep(1800);
     const disk = await (await hfetch("http://127.0.0.1:8787/lib")).json();
     check("F6 session and tags land on disk", (disk.sessions || []).some((x) => x.name === "cart session" && (x.tags || []).includes("money")), (disk.sessions || []).length + " sessions on disk");
+    const tagHints = await value("(() => { const d=document.querySelector('datalist#tag-hints'); return JSON.stringify(d ? [...d.querySelectorAll('option')].map((x)=>x.value) : []); })()");
+    check("A21 the tag box suggests tags you already use", Array.isArray(tagHints) && tagHints.includes("cart") && tagHints.includes("money"), JSON.stringify(tagHints));
     await click("^new$");
     await sleep(400);
     await click("open \\(");

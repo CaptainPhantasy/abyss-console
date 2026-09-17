@@ -254,6 +254,19 @@ function safePath(p) {
 }
 
 function walk(root, limit = 4000) {
+  /* what the project's own .gitignore would not commit, the walk does not index */
+  const rules = [];
+  try {
+    for (const raw of readFileSync(join(root, ".gitignore"), "utf8").split("\n")) {
+      const line = raw.trim();
+      if (!line || line.startsWith("#") || line.startsWith("!")) continue;
+      const p = line.replace(/\/+$/, "");
+      const esc = p.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+      const re = p.includes("*") ? new RegExp("^" + esc + "$") : null;
+      rules.push(re ? (rel, name) => re.test(name) || re.test(rel) : (rel, name) => name === p || rel === p || rel.startsWith(p + "/"));
+    }
+  } catch {}
+  const ignored = (rel, name) => rules.some((f) => f(rel, name));
   const out = [];
   const stack = [root];
   while (stack.length && out.length < limit) {
@@ -267,6 +280,7 @@ function walk(root, limit = 4000) {
     for (const e of entries) {
       if (e.name.startsWith(".DS_Store")) continue;
       const full = join(dir, e.name);
+      if (rules.length && ignored(full.slice(root.length + 1), e.name)) continue;
       if (e.isDirectory()) {
         if (SKIP_DIRS.has(e.name)) continue;
         stack.push(full);

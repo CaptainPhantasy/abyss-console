@@ -95,7 +95,8 @@ build the test page first: `node build.mjs --api-base http://127.0.0.1:8899`.
 
 Above the composer sits the project bar. Point it at a folder and press **index**: the helper walks
 it and the page reports what a whole-text send would cost ("24 files · 25.7 MB · ~176,745 tokens if
-sent whole (≈ $0.0265 off-peak)").
+sent whole (≈ $0.0265 off-peak)"). The walk respects the project's own `.gitignore` at its root:
+what you would not commit, the map does not index.
 
 - **attach map** puts a compact map in the next message: directories, the biggest files, sizes and
   kinds, plus the token arithmetic. Cheap (264 tokens for this project) and it is what tells the
