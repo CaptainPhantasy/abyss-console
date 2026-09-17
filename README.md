@@ -144,7 +144,9 @@ with a "nearly spent" note past 80%). When the budget is reached the page stops 
 red line explains it and **no request leaves the machine**. The counter is keyed to the date, so it
 resets tomorrow. This meter is the only always-visible cost number; **cost ▾** shows what the next
 send will cost, and each turn keeps its forecast-vs-actual line in the chat as the record. Set the
-amount in Settings; `0` means no limit.
+amount in Settings; `0` means no limit. The row that carries it stays thin on purpose — the panels
+toggle, the project, and this one number; session, model, routing, pins, verify and index live one
+click away behind **panels**.
 
 Next to it, three routing presets — **cheap & cheerful** (flash, thinking off), **everyday coding**
 (flash, thinking high), **hard reasoning** (v4-pro, thinking high) — and **second opinion from pro**,

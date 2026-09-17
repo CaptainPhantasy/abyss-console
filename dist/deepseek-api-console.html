@@ -3927,69 +3927,26 @@ ${z.text}`,
                           children: project ? project.root.split("/").filter(Boolean).pop() + " · " + project.count + " files" + (projectStale ? " · files changed — press re-index" : "") : "no project indexed",
                         }),
                         jsxRuntime.jsxs("span", {
-                          style: { color: "var(--kelp)", fontFamily: "'JetBrains Mono',monospace", whiteSpace: "nowrap" },
-                          children: [sessions.length, " saved", sessionName ? " · naming: " + sessionName : ""],
+                          style: { marginLeft: "auto", color: "var(--kelp)", fontFamily: "'JetBrains Mono',monospace", whiteSpace: "nowrap" },
+                          children: [
+                            (i.projectBudgets || {})[project ? project.root : "~"] != null ? "project " : "today ",
+                            fmtCost(
+                              (i.projectBudgets || {})[project ? project.root : "~"] != null
+                                ? ((daily && daily.byProject && daily.byProject[project ? project.root : "~"]) || { cost: 0 }).cost
+                                : daily && daily.date === todayIndiana()
+                                  ? daily.cost
+                                  : 0,
+                            ),
+                            " of ",
+                            fmtCost(
+                              (i.projectBudgets || {})[project ? project.root : "~"] != null
+                                ? Number((i.projectBudgets || {})[project ? project.root : "~"])
+                                : Number(i.budgetUsd) > 0
+                                  ? Number(i.budgetUsd)
+                                  : 0,
+                            ),
+                          ],
                         }),
-                        jsxRuntime.jsx("span", { style: { marginLeft: "auto", display: "flex", gap: 10, alignItems: "center" }, children: [
-                          jsxRuntime.jsxs("span", {
-                            style: { color: "var(--kelp)", fontFamily: "'JetBrains Mono',monospace", whiteSpace: "nowrap" },
-                            children: [i.model, i.thinking ? " · thinking " + i.effort : " · thinking off"],
-                          }),
-                          jsxRuntime.jsx("button", {
-                            style: STYLES.ghostBtn,
-                            title: "what this send will cost — click for the token breakdown",
-                            onClick: () => {
-                              const e2 = estimateSend();
-                              setProjectMsg(
-                                "this send: ~" + e2.total.toLocaleString() + " tokens ≈ " + fmtCost(e2.usd) +
-                                  (e2.peak ? " at peak" : " off-peak") +
-                                  " — system " + e2.system.toLocaleString() +
-                                  ", history " + e2.history.toLocaleString() +
-                                  ", attachments " + e2.attached.toLocaleString(),
-                              );
-                              K({ panelsOpen: true });
-                            },
-                            children: "cost ▾",
-                          }),
-                          jsxRuntime.jsx("button", {
-                            style: STYLES.ghostBtn,
-                            title: "the exact request bodies that went out, in order, copyable",
-                            onClick: () => {
-                              setSent(sent ? null : [...(globalThis.__ABYSS_REQS || [])]);
-                            },
-                            children: "sent ▾",
-                          }),
-                          jsxRuntime.jsx("button", {
-                            style: STYLES.ghostBtn,
-                            title: "every change made through this page, with a button to put any of them back",
-                            onClick: () => {
-                              setJournal(journal ? null : []);
-                              loadJournal();
-                            },
-                            children: "changes",
-                          }),
-                          jsxRuntime.jsxs("span", {
-                            style: { color: "var(--kelp)", fontFamily: "'JetBrains Mono',monospace", whiteSpace: "nowrap" },
-                            children: [
-                              (i.projectBudgets || {})[project ? project.root : "~"] != null ? "project " : "today ",
-                              fmtCost(
-                                (i.projectBudgets || {})[project ? project.root : "~"] != null
-                                  ? ((daily && daily.byProject && daily.byProject[project ? project.root : "~"]) || { cost: 0 }).cost
-                                  : daily && daily.date === todayIndiana()
-                                    ? daily.cost
-                                    : 0,
-                              ),
-                              " of ",
-                              fmtCost(
-                                (i.projectBudgets || {})[project ? project.root : "~"] != null
-                                  ? Number((i.projectBudgets || {})[project ? project.root : "~"])
-                                  : Number(i.budgetUsd) > 0
-                                    ? Number(i.budgetUsd)
-                                    : 0,
-                              ),
-                            ],
-                          }),
-                        ] }),
                       ],
                     }),
                     i.panelsOpen &&
@@ -4062,6 +4019,51 @@ ${z.text}`,
                                   children: [sessionMsg, libNote ? (sessionMsg ? " · " : "") + libNote : ""].join(""),
                                 })
                               : null,
+                          ],
+                        }),
+                        jsxRuntime.jsxs("div", {
+                          style: { ...STYLES.projectBar, marginTop: 8 },
+                          children: [
+                            jsxRuntime.jsx("span", {
+                              style: { color: "var(--kelp)", fontFamily: "'JetBrains Mono',monospace", whiteSpace: "nowrap" },
+                              children: [i.model, i.thinking ? " · thinking " + i.effort : " · thinking off"],
+                            }),
+                            jsxRuntime.jsx("button", {
+                              style: STYLES.ghostBtn,
+                              title: "what this send will cost — click for the token breakdown",
+                              onClick: () => {
+                                const e2 = estimateSend();
+                                setProjectMsg(
+                                  "this send: ~" + e2.total.toLocaleString() + " tokens ≈ " + fmtCost(e2.usd) +
+                                    (e2.peak ? " at peak" : " off-peak") +
+                                    " — system " + e2.system.toLocaleString() +
+                                    ", history " + e2.history.toLocaleString() +
+                                    ", attachments " + e2.attached.toLocaleString(),
+                                );
+                              },
+                              children: "cost ▾",
+                            }),
+                            jsxRuntime.jsx("button", {
+                              style: STYLES.ghostBtn,
+                              title: "the exact request bodies that went out, in order, copyable",
+                              onClick: () => {
+                                setSent(sent ? null : [...(globalThis.__ABYSS_REQS || [])]);
+                              },
+                              children: "sent ▾",
+                            }),
+                            jsxRuntime.jsx("button", {
+                              style: STYLES.ghostBtn,
+                              title: "every change made through this page, with a button to put any of them back",
+                              onClick: () => {
+                                setJournal(journal ? null : []);
+                                loadJournal();
+                              },
+                              children: "changes",
+                            }),
+                            jsxRuntime.jsxs("span", {
+                              style: { marginLeft: "auto", color: "var(--kelp)", fontFamily: "'JetBrains Mono',monospace", whiteSpace: "nowrap" },
+                              children: [sessions.length, " saved", sessionName ? " · naming: " + sessionName : ""],
+                            }),
                           ],
                         }),
                         journal &&
