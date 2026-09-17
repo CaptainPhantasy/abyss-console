@@ -647,7 +647,7 @@ function tmpdirSafe() {
 /* ------------------------------------------------------------------ http */
 const CORS = {
   "access-control-allow-origin": "*",
-  "access-control-allow-headers": "content-type,mcp-session-id,mcp-protocol-version",
+  "access-control-allow-headers": "content-type,mcp-session-id,mcp-protocol-version,x-abyss-token",
   "access-control-allow-methods": "GET,POST,OPTIONS",
   "access-control-expose-headers": "mcp-session-id",
 };
@@ -1157,8 +1157,8 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/fs/read") {
     const p = safePath(url.searchParams.get("path") || "");
-    if (!p.startsWith(HOME) && !p.startsWith("/Volumes")) {
-      json(res, 403, { error: "that path is outside this machine's home folder and the Storage drives" });
+    if (!p.startsWith(HOME) && !p.startsWith("/Volumes") && !p.startsWith("/tmp") && !p.startsWith("/private")) {
+      json(res, 403, { error: "that path is outside this machine's home folder, /tmp and the Storage drives" });
       return;
     }
     try {

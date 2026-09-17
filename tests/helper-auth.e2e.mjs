@@ -121,6 +121,7 @@ test("preflight from loopback is allowed", async () => {
   const r = await call("/run", { method: "OPTIONS", origin: "http://127.0.0.1:" + PORT });
   assert.equal(r.status, 204);
   assert.equal(r.headers.get("access-control-allow-origin"), "*");
+  assert.match(r.headers.get("access-control-allow-headers") || "", /x-abyss-token/, "the token header must survive preflight");
 });
 
 test("with the token, a command runs", async () => {

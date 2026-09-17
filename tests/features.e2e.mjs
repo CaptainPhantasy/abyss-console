@@ -25,6 +25,7 @@ rmSync(LAB, { recursive: true, force: true });
 mkdirSync(LAB + "/src", { recursive: true });
 writeFileSync(LAB + "/src/checkout.js", "export const total = () => 0;\n");
 writeFileSync(LAB + "/src/cart.js", "export const sum = () => 0;\n");
+writeFileSync(LAB + "/src/legacy.js", Array.from({ length: 25 }, (_, i) => "// old line " + (i + 1)).join("\n") + "\n");
 
 const seen = [];
 const seenFim = [];
@@ -66,7 +67,7 @@ const srv = createServer((req, res) => {
       if (/write to a file please/.test(lastUserText)) {
         res.writeHead(200, { "content-type": "text/event-stream" });
         const c = (o) => res.write("data: " + JSON.stringify(o) + "\n\n");
-        c({ choices: [{ delta: { content: "Here it is:\n\n**cart.js**\n```js\nexport const sum = () => 1;\n```\n" }, finish_reason: null }] });
+        c({ choices: [{ delta: { content: "Here it is:\n\n**" + LAB + "/src/legacy.js**\n```js\nexport const legacy = () => 1;\n```\n" }, finish_reason: null }] });
         c({ choices: [{ delta: {}, finish_reason: "stop" }] });
         c({ choices: [], usage: { prompt_tokens: 1000, completion_tokens: 40, prompt_cache_hit_tokens: 900, prompt_cache_miss_tokens: 100 } });
         res.write("data: [DONE]\n\n"); res.end();
@@ -212,8 +213,12 @@ srv.listen(8899, "127.0.0.1", async () => {
     await sleep(200);
     await click("Send ↵");
     await sleep(4000);
-    const wcard = await value("(() => { const t=document.body.innerText; return JSON.stringify({ card: /proposes writing 1 file/.test(t), name: /cart\\.js/.test(t) }); })()");
+    const wcard = await value("(() => { const t=document.body.innerText; return JSON.stringify({ card: /proposes writing 1 file/.test(t), name: /legacy\\.js/.test(t) }); })()");
     check("A23 the write card renders for the taught format", wcard.card && wcard.name, JSON.stringify(wcard));
+    await click("^compare$");
+    await sleep(1800);
+    const wdiff = await value("(() => { const t=document.body.innerText; return JSON.stringify({ del: /− \\/\\/ old line 1/.test(t), add: /\\+ export const legacy/.test(t), nudge: /removes 25 lines/.test(t) }); })()");
+    check("A4 the card shows a real diff and flags a big rewrite", wdiff.del && wdiff.add && wdiff.nudge, JSON.stringify(wdiff));
 
     /* a code block can be finished by the cheap model (fill-in-the-middle) */
     await click("^new$");

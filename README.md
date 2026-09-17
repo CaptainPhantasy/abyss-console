@@ -107,10 +107,13 @@ sent whole (≈ $0.0265 off-peak)").
 ## Writes, undo and running commands
 
 A reply that says `### file: <path>` and then a fenced block is treated as a proposal: a card
-appears with **compare** (a real line diff against what is on disk now: `+added −removed` and the
-first changed lines), **write**, and **undo**. Nothing is written until you press it. Every write
-keeps a copy of what was there first, listed in `~/.cache/abyss-bridge/writes.jsonl`, and undo
-restores it — or removes the file again if it did not exist before.
+appears with **compare** (a real line diff against what is on disk now: red and green rows with
+context lines, and a warning when a rewrite would delete more than it adds), **write**, and
+**undo**. Nothing is written until you press it. Every write keeps a copy of what was there first,
+listed in `~/.cache/abyss-bridge/writes.jsonl`, and undo restores it — or removes the file again
+if it did not exist before. The build contract asks the model for a unified diff on files that
+already exist (the patch card checks and applies it hunk by hunk); `### file: <path>` — or a bold
+filename line — is the form for files that do not exist yet.
 
 The verify bar runs a command in the project folder through the helper. The helper refuses to run
 anything unless the request says `confirm: true`, so nothing executes behind your back. The output

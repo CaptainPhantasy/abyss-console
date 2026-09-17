@@ -131,7 +131,7 @@ model_not_found => pre-July names retired. deepseek-v4-flash / deepseek-v4-flash
   MCP_CONTRACT_TEXT = `You are the assistant inside a DeepSeek API console. You are a DeepSeek platform specialist and builder.
 Non-negotiables:
 - You are an expert on everything in the DeepSeek cheat sheet above; cite its facts (prices, limits, rules) precisely and never invent numbers.
-- When asked to BUILD something (an app, script, page, agent, config, doc), deliver the COMPLETE artifact in fenced code blocks with the correct language tag — full implementation, zero placeholders, zero "..." elisions. Multiple files = multiple fenced blocks, each preceded by its own line \`### file: <path>\`.
+- When asked to BUILD something (an app, script, page, agent, config, doc), deliver the COMPLETE artifact in fenced code blocks with the correct language tag — full implementation, zero placeholders, zero "..." elisions. Multiple files = multiple fenced blocks, each preceded by its own line \`### file: <path>\`. For changes to a file that already exists, send a unified diff with context lines instead — the page checks and applies it hunk by hunk.
 - Default all designs and generated code to the DeepSeek API (deepseek-flash unless the task genuinely needs v4-pro), applying the cheat sheet: static-prefix prompt ordering for cache hits, correct thinking/streaming/tool-round-trip handling, and cost math per million tokens.
 - Speak plainly: explain any technical term in the same sentence you use it. Lead with the outcome, then the detail.
 - If a fact could have drifted since the sheet's verification date, say so and recommend the Docs tab's live refresh.`,
@@ -931,16 +931,36 @@ function WriteReview({ blocks, onNote }) {
       const before = typeof cur.text === "string" ? cur.text : "";
       const beforeLines = before.split("\n");
       const afterLines = rows[i].code.split("\n");
-      const beforeSet = new Set(beforeLines);
-      const afterSet = new Set(afterLines);
-      const added = afterLines.filter((l) => l.trim() && !beforeSet.has(l)).length;
-      const removed = beforeLines.filter((l) => l.trim() && !afterSet.has(l)).length;
-      const changed = [];
-      for (let k = 0; k < Math.max(beforeLines.length, afterLines.length) && changed.length < 6; k++) {
-        if (beforeLines[k] !== afterLines[k])
-          changed.push({ line: k + 1, before: beforeLines[k], after: afterLines[k] });
+      /* a real line diff: trim the common ends, LCS the middle */
+      let s = 0;
+      while (s < beforeLines.length && s < afterLines.length && beforeLines[s] === afterLines[s]) s++;
+      let e1 = beforeLines.length, e2 = afterLines.length;
+      while (e1 > s && e2 > s && beforeLines[e1 - 1] === afterLines[e2 - 1]) { e1--; e2--; }
+      const a = beforeLines.slice(s, e1), b2 = afterLines.slice(s, e2);
+      const out = [];
+      for (let k = Math.max(0, s - 2); k < s; k++) out.push({ t: "ctx", text: beforeLines[k] });
+      let added = 0, removed = 0;
+      if (a.length * b2.length > 600000) {
+        a.forEach((L) => { out.push({ t: "del", text: L }); removed++; });
+        b2.forEach((L) => { out.push({ t: "add", text: L }); added++; });
+      } else {
+        const n1 = a.length, n2 = b2.length;
+        const dp = Array.from({ length: n1 + 1 }, () => new Uint16Array(n2 + 1));
+        for (let x2 = n1 - 1; x2 >= 0; x2--)
+          for (let y2 = n2 - 1; y2 >= 0; y2--)
+            dp[x2][y2] = a[x2] === b2[y2] ? dp[x2 + 1][y2 + 1] + 1 : Math.max(dp[x2 + 1][y2], dp[x2][y2 + 1]);
+        let x2 = 0, y2 = 0;
+        while (x2 < n1 && y2 < n2) {
+          if (a[x2] === b2[y2]) { out.push({ t: "ctx", text: a[x2] }); x2++; y2++; }
+          else if (dp[x2 + 1][y2] >= dp[x2][y2 + 1]) { out.push({ t: "del", text: a[x2] }); removed++; x2++; }
+          else { out.push({ t: "add", text: b2[y2] }); added++; y2++; }
+        }
+        while (x2 < n1) { out.push({ t: "del", text: a[x2] }); removed++; x2++; }
+        while (y2 < n2) { out.push({ t: "add", text: b2[y2] }); added++; y2++; }
       }
-      patch(i, { state: "ready", diff: { added, removed, changed, existed: before !== "" } });
+      for (let k = e1; k < Math.min(beforeLines.length, e1 + 2); k++) out.push({ t: "ctx", text: beforeLines[k] });
+      const shown = out.slice(0, 160);
+      patch(i, { state: "ready", diff: { added, removed, rows: shown, hidden: Math.max(0, out.length - shown.length), existed: before !== "" } });
     } catch (err) {
       patch(i, { state: "error" });
       onNote("could not read " + rows[i].path + " to compare: " + String(err.message || err));
@@ -1031,13 +1051,18 @@ function WriteReview({ blocks, onNote }) {
                     : null,
                 ] }),
               ] }),
-              r.state === "ready" && r.diff && r.diff.changed.length
-                ? jsxRuntime.jsx("pre", {
-                    style: { ...STYLES.pre, marginTop: 6, fontSize: 10.5, maxHeight: 150 },
-                    children: r.diff.changed
-                      .map((c) => "line " + c.line + "\n- " + String(c.before == null ? "(nothing)" : c.before).slice(0, 160) + "\n+ " + String(c.after == null ? "(removed)" : c.after).slice(0, 160))
-                      .join("\n"),
-                  })
+              r.state === "ready" && r.diff
+                ? jsxRuntime.jsxs("div", { children: [
+                    r.diff.existed && r.diff.removed > 20 && r.diff.removed > r.diff.added
+                      ? jsxRuntime.jsx("div", { style: { fontSize: 11, color: "var(--coral)", marginTop: 6 }, children: "this rewrite removes " + r.diff.removed + " lines and adds " + r.diff.added + " — an edit this size is safer as a unified diff; ask the model for one" })
+                      : null,
+                    r.diff.rows && r.diff.rows.length
+                      ? jsxRuntime.jsx("pre", { style: { ...STYLES.pre, marginTop: 6, fontSize: 10.5, maxHeight: 220, lineHeight: 1.5 }, children: r.diff.rows.map((z, zi) => jsxRuntime.jsx("div", { style: { color: z.t === "add" ? "#3FB950" : z.t === "del" ? "var(--coral)" : "var(--kelp)" }, children: (z.t === "add" ? "+ " : z.t === "del" ? "− " : "  ") + z.text }, zi)) })
+                      : null,
+                    r.diff.hidden
+                      ? jsxRuntime.jsx("div", { style: { fontSize: 10.5, color: "var(--kelp)", marginTop: 2 }, children: "… " + r.diff.hidden + " more diff lines not shown" })
+                      : null,
+                  ] })
                 : null,
               r.state === "written"
                 ? jsxRuntime.jsx("div", { style: { color: "var(--kelp)", marginTop: 4 }, children: "written — press undo to put the previous version back" })
