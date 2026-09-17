@@ -2457,6 +2457,21 @@ ${z.text}`,
                 content: "",
               },
             ]);
+          }
+          /* one independent read must not wait on another: consecutive read-only calls are
+             dispatched together; every result still lands in its own row, in call order */
+          const readToolNames = ["read_project_files", "search_project", "find_references"];
+          const withDepth = async (work) => {
+            const m2 = globalThis.__ABYSS_TOOLS || (globalThis.__ABYSS_TOOLS = { now: 0, peak: 0 });
+            m2.now++;
+            m2.peak = Math.max(m2.peak, m2.now);
+            try {
+              return await work();
+            } finally {
+              m2.now--;
+            }
+          };
+          const executeTool = async (te, ne) => {
             const readOnlyRoomTools = ["room_status", "room_list_servers", "room_search_tools", "room_describe_tool", "room_list_resources", "room_read_resource"];
             let Fe;
             if (te.function.name === "read_project_files") {
@@ -2493,6 +2508,9 @@ ${z.text}`,
             } else {
               Fe = await globalThis.DCEngine.runGuarded(i.mcpGate, te.function.name, ne, { signal: Qe.current.signal });
             }
+            return Fe;
+          };
+          const landTool = (te, Fe) => {
             const Ue =
               Fe.status === "executed"
                   ? Fe.result || "(empty result)"
@@ -2511,16 +2529,41 @@ ${z.text}`,
             });
             x((Fr) => {
               const Rn = [...Fr];
-              return (
-                (Rn[Rn.length - 1] = {
-                  ...Rn[Rn.length - 1],
+              const at2 = Rn.findIndex((z2) => z2.role === "tool" && z2.toolCallId === te.id);
+              if (at2 !== -1) {
+                Rn[at2] = {
+                  ...Rn[at2],
                   status: Fe.status,
                   ok: Fe.status === "executed",
                   content: String(Ue).slice(0, 2e3),
-                }),
-                Rn
-              );
+                };
+              }
+              return Rn;
             });
+          };
+          for (let at2 = 0; at2 < F.toolCalls.length; ) {
+            const te = F.toolCalls[at2];
+            let ne = {};
+            try {
+              ne = JSON.parse(te.function.arguments || "{}");
+            } catch {}
+            if (readToolNames.indexOf(te.function.name) !== -1) {
+              const batch = [];
+              while (at2 < F.toolCalls.length && readToolNames.indexOf(F.toolCalls[at2].function.name) !== -1) {
+                const t2 = F.toolCalls[at2];
+                let a2 = {};
+                try {
+                  a2 = JSON.parse(t2.function.arguments || "{}");
+                } catch {}
+                batch.push({ te: t2, ne: a2 });
+                at2++;
+              }
+              const results = await Promise.all(batch.map((b2) => withDepth(() => executeTool(b2.te, b2.ne))));
+              for (let i2 = 0; i2 < batch.length; i2++) landTool(batch[i2].te, results[i2]);
+            } else {
+              landTool(te, await withDepth(() => executeTool(te, ne)));
+              at2++;
+            }
           }
           if (step === 7) {
             x((te) => [...te, { role: "assistant", error: !0, content: "the tool loop hit its 8-step cap for this turn — everything above is kept; send 'continue' and it picks up from the results it already has." }]);

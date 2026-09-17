@@ -382,6 +382,8 @@ srv.listen(MOCK_PORT, "127.0.0.1", async () => {
     const toolTexts = (lastReq.messages || []).filter((x) => x.role === "tool").map((x) => String(x.content)).join("\n");
     check("B2 search_project returns file:line hits", /checkout\.js:1/.test(toolTexts) && /cart\.js:1/.test(toolTexts), (toolTexts.match(/hits for[^\n]*/) || ["(no search result)"])[0]);
     check("B3 find_references names where a symbol is used", /references to "total"/.test(toolTexts) && /checkout\.js:1/.test(toolTexts), (toolTexts.match(/references to[^\n]*/) || ["(no references result)"])[0]);
+    const toolPeak = await value("(() => (globalThis.__ABYSS_TOOLS || {}).peak || 0)()");
+    check("B10 independent reads run together", toolPeak >= 2, "peak concurrent tool runs: " + toolPeak);
 
     /* A5/B9 — git: the panel on the page, and the branch plus changes in the context */
     const sysB9 = String((((firstCall || {}).messages || [])[0] || {}).content || "");
