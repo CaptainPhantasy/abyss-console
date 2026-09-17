@@ -221,6 +221,16 @@ srv.listen(8899, "127.0.0.1", async () => {
     await sleep(1200);
     const afterTxt = await value("(() => { const t=document.body.innerText; return JSON.stringify({ cancelled: /cancelled/.test(t), back: [...document.querySelectorAll('button')].some((x)=>(x.textContent||'').trim()==='compare flash vs pro') }); })()");
     check("A14 the compare pair cancels on demand", midTxt.cancel && afterTxt.cancelled && afterTxt.back, JSON.stringify({ mid: midTxt, after: afterTxt }));
+    /* A13 — the ⌘K command palette */
+    await ab("eval", "window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true })); 'k'");
+    await sleep(500);
+    const palOpen = await value("(() => JSON.stringify({ open: [...document.querySelectorAll('input')].some((x)=>/⌘K palette/.test(x.placeholder||'')) }))()");
+    await ab("eval", "(() => { const i=[...document.querySelectorAll('input')].find((x)=>/⌘K palette/.test(x.placeholder||'')); if(!i) return 'no'; const s=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set; s.call(i,'cost'); i.dispatchEvent(new Event('input',{bubbles:true})); return 'typed'; })()");
+    await sleep(300);
+    await ab("eval", "(() => { const i=[...document.querySelectorAll('input')].find((x)=>/⌘K palette/.test(x.placeholder||'')); if(!i) return 'no'; i.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true})); return 'enter'; })()");
+    await sleep(700);
+    const palRun = await value("(() => { const t2=document.body.innerText; const still=[...document.querySelectorAll('input')].some((x)=>/⌘K palette/.test(x.placeholder||'')); return JSON.stringify({ ran: /this send: ~/.test(t2), closed: !still }); })()");
+    check("A13 ⌘K opens a palette that runs actions", palOpen.open && palRun.ran && palRun.closed, JSON.stringify({ palOpen, palRun }));
 
     /* F9 — pinned context in the cached prefix, and the meter */
     const before = seen.length;

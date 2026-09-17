@@ -1145,6 +1145,8 @@ function App() {
     [traceOpen, setTraceOpen] = React.useState(false),
     [journalMsg, setJournalMsg] = React.useState(""),
     [sent, setSent] = React.useState(null),
+    [palette, setPalette] = React.useState(false),
+    [palQuery, setPalQuery] = React.useState(""),
     [confirmKill, setConfirmKill] = React.useState(""),
     [confirmUnpin, setConfirmUnpin] = React.useState(""),
     [sessions, setSessions] = React.useState([]),
@@ -1169,6 +1171,20 @@ function App() {
     mRef = React.useRef([]);
   /* the fix loop awaits between rounds, so it reads messages from a ref, never a stale closure */
   mRef.current = m;
+  /* ⌘K / Ctrl-K opens the command palette; Esc closes it */
+  React.useEffect(() => {
+    const onKey = (ev2) => {
+      if ((ev2.metaKey || ev2.ctrlKey) && String(ev2.key).toLowerCase() === "k") {
+        ev2.preventDefault();
+        setPalette((p3) => !p3);
+        setPalQuery("");
+      } else if (ev2.key === "Escape") {
+        setPalette(false);
+      }
+    };
+    globalThis.addEventListener("keydown", onKey);
+    return () => globalThis.removeEventListener("keydown", onKey);
+  }, []);
   (React.useEffect(() => {
     (async () => {
       const [h, z, A, F, U, day, savedSessions, savedRecipes] = await Promise.all([
@@ -2343,6 +2359,22 @@ ${z.text}`,
       } catch {}
       setProjectMsg("cancelling the compare…");
     },
+    paletteActions = () => [
+      { label: "new chat (the view clears; saved sessions are untouched)", run: () => { x([]); setSessionMsg("the chat is clear — this does not touch what you saved"); } },
+      { label: "open saved sessions", run: () => setSessionOpen(!0) },
+      { label: "cost breakdown of the next send", run: () => { const e3 = estimateSend(); setProjectMsg("this send: ~" + e3.total.toLocaleString() + " tokens ≈ " + fmtCost(e3.usd) + (e3.peak ? " at peak" : " off-peak")); } },
+      { label: "open the sent-request inspector", run: () => setSent([...(globalThis.__ABYSS_REQS || [])]) },
+      { label: "open the change journal", run: () => { setJournal([]); loadJournal(); } },
+      { label: "run the verify command", run: () => runVerify() },
+      { label: "apply & fix (the bounded loop)", run: () => applyFixLoop() },
+      { label: "compare flash vs pro", run: () => compareModels() },
+      { label: "second opinion from pro", run: () => reviewWithPro() },
+      { label: "trace… (triage a stack trace)", run: () => setTraceOpen(!0) },
+      { label: "index the project folder", run: () => indexProject(projPath) },
+      { label: "settings", run: () => t("settings") },
+      { label: "chat", run: () => t("chat") },
+      { label: "the daily idea", run: () => R() },
+    ],
     useComparison = (which) => {
       const picked = compare && compare[which];
       if (!picked || picked.error) return;
@@ -4581,6 +4613,48 @@ ${z.text}`,
                     },
                     children: Ul.inWindow ? "◐ peak 2x live" : Ul.warn ? "⚠ 2x in " + Ul.minsToPeak + " min" : "◑ off-peak",
                   }),
+                  palette &&
+                    jsxRuntime.jsxs("div", {
+                      style: { position: "fixed", inset: 0, background: "rgba(3,7,13,0.62)", zIndex: 60, display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "12vh" },
+                      onClick: () => setPalette(false),
+                      children: [
+                        jsxRuntime.jsxs("div", {
+                          style: { ...STYLES.card, width: "min(560px, 92vw)", background: "rgba(7,14,24,0.98)" },
+                          onClick: (ev2) => ev2.stopPropagation(),
+                          children: [
+                            jsxRuntime.jsx("input", {
+                              style: { ...STYLES.input, width: "100%" },
+                              placeholder: "⌘K palette — type to filter an action, Enter runs the first",
+                              autoFocus: true,
+                              value: palQuery,
+                              onChange: (h2) => setPalQuery(h2.target.value),
+                              onKeyDown: (h2) => {
+                                if (h2.key === "Enter") {
+                                  const list2 = paletteActions().filter((a2) => !palQuery || a2.label.toLowerCase().includes(palQuery.toLowerCase()));
+                                  if (list2[0]) {
+                                    list2[0].run();
+                                    setPalette(false);
+                                  }
+                                }
+                              },
+                            }),
+                            jsxRuntime.jsx("div", {
+                              style: { marginTop: 8, display: "flex", flexDirection: "column", gap: 4, maxHeight: "52vh", overflow: "auto" },
+                              children: paletteActions()
+                                .filter((a2) => !palQuery || a2.label.toLowerCase().includes(palQuery.toLowerCase()))
+                                .slice(0, 10)
+                                .map((a2, i2) =>
+                                  jsxRuntime.jsx(
+                                    "button",
+                                    { style: { ...STYLES.ghostBtn, textAlign: "left" }, onClick: () => { a2.run(); setPalette(false); }, children: a2.label + (i2 === 0 ? "  ⏎" : "") },
+                                    i2,
+                                  ),
+                                ),
+                            }),
+                          ],
+                        }),
+                      ],
+                    }),
                 ],
               }),
               jsxRuntime.jsxs("div", { style: STYLES.sonarFoot, children: [
