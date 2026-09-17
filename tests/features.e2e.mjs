@@ -25,7 +25,8 @@ const hfetch = (url, opts = {}) =>
 mkdirSync(LAB + "/src", { recursive: true });
 writeFileSync(LAB + "/src/checkout.js", "export const total = () => 0;\n");
 writeFileSync(LAB + "/src/cart.js", "export const sum = () => 0;\n");
-writeFileSync(LAB + "/src/legacy.js", Array.from({ length: 25 }, (_, i) => "// old line " + (i + 1)).join("\n") + "\n");
+const LEGACY_TEXT = Array.from({ length: 25 }, (_, i) => "// old line " + (i + 1)).join("\n") + "\n";
+writeFileSync(LAB + "/src/legacy.js", LEGACY_TEXT);
 writeFileSync(LAB + "/check.js", "process.exit(1);\n");
 writeFileSync(LAB + "/src/big.js", "// a big line of source\n".repeat(700));
 
@@ -175,7 +176,7 @@ srv.listen(MOCK_PORT, "127.0.0.1", async () => {
     await ab("open", HELPER + "/");
     await sleep(900);
     await ab("eval", `localStorage.setItem('deepseek_console:apikey', JSON.stringify('sk-stand-in'));
-      localStorage.setItem('deepseek_console:settings', JSON.stringify({ model:'deepseek-flash', thinking:false, effort:'high', maxTokens:8000, mcpOn:false, mcpUrl:'', mcpGate:'PLAN', mcpToken:'', helperToken:${JSON.stringify(HTOKEN)}, redact:true, budgetUsd:0, panelsOpen:true, verifyCmds:{${JSON.stringify(LAB)}:"node check.js\\necho after-check"}, pinned:[{id:'p1', name:'guardrails.md', text:'house rule: never log secrets — password=hunter2hunter2', tokens:12}] }));
+      localStorage.setItem('deepseek_console:settings', JSON.stringify({ model:'deepseek-flash', thinking:false, effort:'high', maxTokens:8000, mcpOn:false, mcpUrl:'', mcpGate:'PLAN', mcpToken:'', helperToken:${JSON.stringify(HTOKEN)}, redact:true, budgetUsd:0, panelsOpen:true, verifyCmds:{${JSON.stringify(LAB)}:"node check.js\\necho after-check"}, pinned:[{id:'p1', name:'guardrails.md', text:'house rule: never log secrets — password=hunter2hunter2', tokens:12},{id:'p2', name:'legacy.js', path:${JSON.stringify(LAB + "/src/legacy.js")}, text:${JSON.stringify(LEGACY_TEXT)}, tokens:50, at:'2026-09-17T06:00:00.000Z'}] }));
       localStorage.removeItem('deepseek_console:daily'); localStorage.removeItem('deepseek_console:sessions'); localStorage.removeItem('deepseek_console:totals'); location.reload(); 'x'`);
     await sleep(2200);
 
@@ -384,6 +385,22 @@ srv.listen(MOCK_PORT, "127.0.0.1", async () => {
     await sleep(2600);
     const wdiff = await value("(() => { const t=document.body.innerText; return JSON.stringify({ del: /− \\/\\/ old line 1/.test(t), add: /\\+ export const legacy/.test(t), nudge: /removes 25 lines/.test(t), err: /could not read/.test(t) || /not answering/.test(t) }); })()");
     check("A4 the card shows a real diff and flags a big rewrite", wdiff.del && wdiff.add && wdiff.nudge, JSON.stringify(wdiff));
+
+    /* A8/A9 — the map says when files changed; a pin says when its file changed */
+    writeFileSync(LAB + "/src/fresh.js", "export const fresh = () => 1;\n");
+    writeFileSync(LAB + "/src/legacy.js", "// rewritten by the freshness test\n");
+    await ab("eval", "window.dispatchEvent(new Event('focus')); 'focused'");
+    await sleep(1200);
+    const staleTxt = await value("(() => { const t=document.body.innerText; return JSON.stringify({ map: /files changed — press re-index/.test(t), pin: /changed on disk/.test(t), aged: /indexed \\d{2}:\\d{2}/.test(t) }); })()");
+    check("A8/A9 changed files and edited pins are flagged", staleTxt.map && staleTxt.pin && staleTxt.aged, JSON.stringify(staleTxt));
+    await ab("eval", "(() => { const b=[...document.querySelectorAll('button')].find((x)=>x.title==='re-read this file now'); if(!b) return 'no'; b.click(); return 'ok'; })()");
+    await sleep(900);
+    const reRead = await value("(() => /changed on disk/.test(document.body.innerText))()");
+    check("A9 re-reading a pin clears the flag", reRead === false, "still stale: " + reRead);
+    await click("^re-index$");
+    await sleep(6000);
+    const mapGone = await value("(() => !/files changed — press re-index/.test(document.body.innerText))()");
+    check("A8 re-indexing clears the map's flag", mapGone === true, "map still says stale: " + !mapGone);
 
     /* a code block can be finished by the cheap model (fill-in-the-middle) */
     await click("^new$");

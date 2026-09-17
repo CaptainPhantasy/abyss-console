@@ -1979,6 +1979,8 @@ function App() {
     [activeTab, setActiveTab] = React.useState(null),
     [confirmKill, setConfirmKill] = React.useState(""),
     [confirmUnpin, setConfirmUnpin] = React.useState(""),
+    [stalePins, setStalePins] = React.useState([]),
+    [projectStale, setProjectStale] = React.useState(false),
     [sessions, setSessions] = React.useState([]),
     [sessionName, setSessionName] = React.useState(""),
     [sessionQuery, setSessionQuery] = React.useState(""),
@@ -2015,6 +2017,12 @@ function App() {
     globalThis.addEventListener("keydown", onKey);
     return () => globalThis.removeEventListener("keydown", onKey);
   }, []);
+  /* coming back to the tab re-checks the map and the pins against the disk */
+  React.useEffect(() => {
+    const onFocus = () => { checkFresh(); };
+    globalThis.addEventListener("focus", onFocus);
+    return () => globalThis.removeEventListener("focus", onFocus);
+  }, [i.pinned, project]);
   (React.useEffect(() => {
     (async () => {
       const [h, z, A, F, U, day, savedSessions, savedRecipes] = await Promise.all([
@@ -2697,7 +2705,8 @@ ${z.text}`,
           (tree.truncated ? "\nNote: the listing is cut — " + tree.shownCount + " of " + tree.count + " files shown, and the walk stops at its own cap; there may be more on disk." : "") +
           "\n\n" +
           shown.join("\n");
-        setProject({ root: tree.root, count: tree.count, bytes: tree.bytes, sendable: sendable.length, tokens, files: tree.files });
+        setProject({ root: tree.root, count: tree.count, bytes: tree.bytes, sendable: sendable.length, tokens, files: tree.files, indexedAt: Date.now(), newest: tree.newest || 0 });
+        setProjectStale(false);
         if (i.verifyCmds && i.verifyCmds[tree.root]) setRunCmd(i.verifyCmds[tree.root]);
         setProjectMap(map);
         setProjectMsg(
@@ -3277,6 +3286,43 @@ ${z.text}`,
     unpin = (id) => {
       K({ pinned: (i.pinned || []).filter((p2) => p2.id !== id) });
       setProjectMsg("unpinned");
+    },
+    /* ---- staleness: the map and the pins versus what is on disk now -------- */
+    checkPins = async () => {
+      const changed = [];
+      for (const p2 of i.pinned || []) {
+        if (!p2.path) continue;
+        try {
+          const r = await (await fetch(HELPER_URL + "/attach?path=" + encodeURIComponent(p2.path))).json();
+          if (r.ok && typeof r.text === "string" && r.text !== p2.text) changed.push(p2.id);
+        } catch {}
+      }
+      setStalePins(changed);
+    },
+    rePin = async (id) => {
+      const p2 = (i.pinned || []).find((x2) => x2.id === id);
+      if (!p2 || !p2.path) return;
+      try {
+        const r = await (await fetch(HELPER_URL + "/attach?path=" + encodeURIComponent(p2.path))).json();
+        if (!r.ok || typeof r.text !== "string") {
+          setProjectMsg("could not re-read " + (p2.name || "that file") + ": " + (r.error || "the helper said no"));
+          return;
+        }
+        K({ pinned: (i.pinned || []).map((x2) => (x2.id === id ? { ...x2, text: r.text, tokens: r.tokens || Math.ceil(r.text.length / 4), at: new Date().toISOString() } : x2)) });
+        setStalePins((prev) => prev.filter((x2) => x2 !== id));
+        setProjectMsg("re-read " + p2.name + " — the pin now holds the file as it is on disk");
+      } catch {
+        setProjectMsg("the helper is not answering");
+      }
+    },
+    checkFresh = async () => {
+      if (project && project.root) {
+        try {
+          const t2 = await (await fetch(HELPER_URL + "/fs/tree?limit=4000&path=" + encodeURIComponent(project.root))).json();
+          if (t2 && !t2.error) setProjectStale((t2.newest || 0) > (project.newest || 0));
+        } catch {}
+      }
+      await checkPins();
     },
     triageTrace = () => {
       const text = trace || "";
@@ -3877,8 +3923,8 @@ ${z.text}`,
                           children: i.panelsOpen ? "panels ▴" : "panels ▾",
                         }),
                         jsxRuntime.jsx("span", {
-                          style: { color: "var(--foam)", fontFamily: "'JetBrains Mono',monospace", whiteSpace: "nowrap" },
-                          children: project ? project.root.split("/").filter(Boolean).pop() + " · " + project.count + " files" : "no project indexed",
+                          style: { color: projectStale ? "var(--amber)" : "var(--foam)", fontFamily: "'JetBrains Mono',monospace", whiteSpace: "nowrap" },
+                          children: project ? project.root.split("/").filter(Boolean).pop() + " · " + project.count + " files" + (projectStale ? " · files changed — press re-index" : "") : "no project indexed",
                         }),
                         jsxRuntime.jsxs("span", {
                           style: { color: "var(--kelp)", fontFamily: "'JetBrains Mono',monospace", whiteSpace: "nowrap" },
@@ -4219,8 +4265,9 @@ ${z.text}`,
                               children: [
                                 jsxRuntime.jsx("span", { style: { color: "var(--kelp)", fontFamily: "'JetBrains Mono',monospace", whiteSpace: "nowrap" }, children: "pinned" }),
                                 (i.pinned || []).map((p2) =>
-                                  jsxRuntime.jsxs("span", { style: { display: "flex", gap: 6, alignItems: "center", ...STYLES.chip, width: "auto", padding: "3px 10px", fontSize: 11 }, children: [
-                                    p2.name + " · " + (p2.tokens || 0).toLocaleString() + " tok",
+                                  jsxRuntime.jsxs("span", { style: { display: "flex", gap: 6, alignItems: "center", ...STYLES.chip, width: "auto", padding: "3px 10px", fontSize: 11, ...(stalePins.includes(p2.id) ? { borderColor: "var(--amber)", color: "var(--amber)" } : {}) }, children: [
+                                    p2.name + " · " + (p2.tokens || 0).toLocaleString() + " tok" + (p2.at ? " · " + String(p2.at).slice(5, 16).replace("T", " ") : "") + (stalePins.includes(p2.id) ? " · changed on disk" : ""),
+                                    p2.path ? jsxRuntime.jsx("button", { style: STYLES.trayX, title: "re-read this file now", onClick: () => rePin(p2.id), children: "↻" }) : null,
                                     jsxRuntime.jsx("button", {
                                       style: STYLES.trayX,
                                       title: confirmUnpin === p2.id ? "click again to unpin" : "unpin (asks once first)",
@@ -4320,6 +4367,7 @@ ${z.text}`,
                                     " tokens if sent whole (≈ ",
                                     fmtCost((project.tokens / 1e6) * 0.15),
                                     " off-peak)",
+                                    project.indexedAt ? " · indexed " + new Date(project.indexedAt).toTimeString().slice(0, 5) : "",
                                   ],
                                 })
                               : jsxRuntime.jsx("input", {
@@ -4332,6 +4380,13 @@ ${z.text}`,
                             project
                               ? jsxRuntime.jsxs(jsxRuntime.Fragment, {
                                   children: [
+                                    jsxRuntime.jsx("button", {
+                                      style: STYLES.ghostBtn,
+                                      disabled: projBusy,
+                                      title: "walk the folder again — the map picks up new and changed files",
+                                      onClick: () => indexProject(project.root),
+                                      children: projBusy ? "indexing…" : "re-index",
+                                    }),
                                     jsxRuntime.jsx("button", {
                                       style: STYLES.ghostBtn,
                                       title: "put the map in the next message so the model can ask for files by path",

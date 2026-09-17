@@ -304,7 +304,7 @@ function walk(root, limit = 4000) {
             : IMAGE_EXT.has(e2)
               ? "image"
               : "other";
-        out.push({ path: full, size: st.size, text: kind === "text", kind });
+        out.push({ path: full, size: st.size, mtime: st.mtimeMs, text: kind === "text", kind });
         if (out.length >= limit) break;
       }
     }
@@ -1179,6 +1179,7 @@ const server = createServer(async (req, res) => {
       count: files.length,
       shownCount: shown.length,
       truncated: shown.length < files.length || files.length >= limit,
+      newest: files.reduce((a, f) => Math.max(a, f.mtime || 0), 0),
       textFiles: files.filter((f) => f.text).length,
       bytes: files.reduce((a, f) => a + f.size, 0),
       files: shown,

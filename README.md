@@ -101,6 +101,11 @@ it and the page reports what a whole-text send would cost ("24 files · 25.7 MB 
 sent whole (≈ $0.0265 off-peak)"). The walk respects the project's own `.gitignore` at its root:
 what you would not commit, the map does not index.
 
+The bar also says when it was indexed ("· indexed 03:42"), and it watches for drift cheaply: every
+file the walk returns carries its modification time, and coming back to the tab compares the newest
+one with the one you indexed. Files changed — the row turns amber with "files changed — press
+re-index", and the **re-index** button in the project bar walks the folder again.
+
 - **attach map** puts a compact map in the next message: directories, the biggest files, sizes and
   kinds, plus the token arithmetic. Cheap (264 tokens for this project) and it is what tells the
   model which paths exist. If the walk hits its cap, the map says the listing is cut and how much
@@ -165,6 +170,9 @@ This pattern-based scrubber does not inspect image contents or guarantee detecti
   the button becomes **cancel compare**, and stopping it leaves "cancelled" in both panels.
 - **Pinned context** — pin a file and its text is prepended to the system message, which is the
   cached part of the request: paid once, then a hit. The row shows the session hit-rate beside it.
+  A pin also remembers the path it was read from and its age (on the chip), and coming back to the
+  tab compares it with the file on disk: changed files turn amber — "changed on disk" — and one
+  click on **↻** re-reads them in place.
 - **trace…** — paste a stack trace or failing output; the page pulls the paths out of it, matches
   them against the indexed project, and either attaches exactly those files or hands the lot to the
   model with a request for a patch.
