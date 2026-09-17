@@ -160,6 +160,10 @@ amount in Settings; `0` means no limit. The row that carries it stays thin on pu
 toggle, the project, and this one number; session, model, routing, pins, verify and index live one
 click away behind **panels**.
 
+A task can also carry its own budget: the task row shows what it has spent, and a number you set
+beside it (0 is off) stops both sending and the tool loop once the spend reaches it — so "this task
+may spend a cent" is a real ceiling, not a hope.
+
 Next to it, three routing presets — **cheap & cheerful** (flash, thinking off), **everyday coding**
 (flash, thinking high), **hard reasoning** (v4-pro, thinking high) — and **second opinion from pro**,
 which hands your last exchange to the big model and asks it to be blunt about what is wrong.

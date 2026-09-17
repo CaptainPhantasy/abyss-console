@@ -417,6 +417,19 @@ srv.listen(MOCK_PORT, "127.0.0.1", async () => {
     const taskSys = String(((taskReq.messages || [])[0] || {}).content || "");
     check("B8/B17 the task list survives into the next request", /## TASK:/.test(taskSys) && /- \[x\] rank the map/.test(taskSys) && /- \[ \] prove it/.test(taskSys), (taskSys.match(/## TASK:[\s\S]{0,140}/) || ["(no TASK line)"])[0].replace(/\n/g, " | "));
 
+    /* B11 — a task can carry its own budget, and the page refuses to spend past it */
+    const beforeGuard = seen.length;
+    await typeInto("task budget", "0.00001");
+    await sleep(300);
+    await composer("one more thing");
+    await sleep(200);
+    await click("Send ↵");
+    await sleep(1200);
+    const guardText = await value("(() => { const m = document.body.innerText.match(/This task's budget is spent[^\\n]*/); return m ? m[0] : ''; })()");
+    check("B11 the task stops at its budget", /This task's budget is spent/.test(guardText) && seen.length === beforeGuard, "calls after the guard: " + (seen.length - beforeGuard) + " — " + String(guardText).slice(0, 110));
+    await typeInto("task budget", "0");
+    await sleep(300);
+
     /* A5/B9 — git: the panel on the page, and the branch plus changes in the context */
     const sysB9 = String((((firstCall || {}).messages || [])[0] || {}).content || "");
     check(

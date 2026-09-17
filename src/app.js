@@ -160,6 +160,7 @@ Non-negotiables:
     mcpGate: "PLAN",
   redact: true,
   budgetUsd: 0.5,
+  taskBudgetUsd: 0,
   panelsOpen: false,
   verifyCmds: {},
   projectBudgets: {},
@@ -1168,6 +1169,7 @@ function App() {
     [gitMsg, setGitMsg] = React.useState(""),
     [gitCommitMsg, setGitCommitMsg] = React.useState(""),
     [task, setTask] = React.useState(null),
+    [taskSpent, setTaskSpent] = React.useState(0),
     [sessions, setSessions] = React.useState([]),
     [sessionName, setSessionName] = React.useState(""),
     [sessionQuery, setSessionQuery] = React.useState(""),
@@ -1439,6 +1441,16 @@ ${z.text}`,
         );
         return;
       }
+      if (Number(i.taskBudgetUsd) > 0 && taskSpent >= Number(i.taskBudgetUsd)) {
+        setBudgetStop(
+          "This task's budget is spent: " +
+            fmtCost(taskSpent) +
+            " of " +
+            fmtCost(Number(i.taskBudgetUsd)) +
+            ". Raise it next to the task, clear the task, or call it done.",
+        );
+        return;
+      }
       setBudgetStop("");
       E("");
       setFiles([]);
@@ -1600,6 +1612,13 @@ ${z.text}`,
       }
       try {
         for (let step = 0; step < 8; step++) {
+          if (Number(i.taskBudgetUsd) > 0 && taskSpent + turnCost >= Number(i.taskBudgetUsd)) {
+            setBudgetStop(
+              "This task's budget is spent mid-run: " + fmtCost(taskSpent + turnCost) + " of " + fmtCost(Number(i.taskBudgetUsd)) +
+                ". The loop stopped here — raise it next to the task, or call the task done.",
+            );
+            break;
+          }
           const F = await callDeepSeek({
               apiKey: n,
               scrub: i.redact !== false,
@@ -1732,6 +1751,7 @@ ${z.text}`,
                   : (task && task.steps) || [],
                 at: new Date().toISOString(),
               };
+              if (!task) setTaskSpent(0);
               setTask(nextTask);
               storageSet(STORAGE_KEYS.task, nextTask);
               Fe = {
@@ -1832,6 +1852,7 @@ ${z.text}`,
           );
         });
       }
+          if (turnCost > 0) setTaskSpent((p2) => p2 + turnCost);
           setForecast((prev) => {
             if (!prev) return prev;
             const diff = prev.usd > 0 ? ((turnCost - prev.usd) / prev.usd) * 100 : 0;
@@ -3546,6 +3567,13 @@ ${z.text}`,
                               jsxRuntime.jsxs("div", { style: { display: "flex", gap: 8, alignItems: "center", width: "100%" }, children: [
                                 jsxRuntime.jsx("span", { style: { color: "var(--sonar)", fontFamily: "'JetBrains Mono',monospace", fontSize: 11 }, children: "task · " + (task.goal || "(no goal)") }),
                                 jsxRuntime.jsx("span", { style: { color: "var(--kelp)", fontFamily: "'JetBrains Mono',monospace", fontSize: 11 }, children: (task.steps || []).filter((s2) => s2.done).length + "/" + (task.steps || []).length + " done" }),
+                                jsxRuntime.jsx("span", { style: { color: Number(i.taskBudgetUsd) > 0 && taskSpent >= Number(i.taskBudgetUsd) ? "var(--amber)" : "var(--kelp)", fontFamily: "'JetBrains Mono',monospace", fontSize: 11 }, children: "spent " + fmtCost(taskSpent) + (Number(i.taskBudgetUsd) > 0 ? " of " + fmtCost(Number(i.taskBudgetUsd)) : " (no task budget set)") }),
+                                jsxRuntime.jsx("input", {
+                                  style: { ...STYLES.input, width: 130 },
+                                  placeholder: "task budget $ — 0 is off",
+                                  value: Number(i.taskBudgetUsd) > 0 ? String(i.taskBudgetUsd) : "",
+                                  onChange: (h) => K({ taskBudgetUsd: Number(h.target.value) || 0 }),
+                                }),
                                 jsxRuntime.jsx("button", { style: { ...STYLES.trayX, marginLeft: "auto" }, title: "clear the task list", onClick: () => { setTask(null); storageSet(STORAGE_KEYS.task, null); }, children: "×" }),
                               ] }),
                               (task.steps || []).map((s2, i2) =>
