@@ -99,9 +99,10 @@ sent whole (≈ $0.0265 off-peak)").
   model which paths exist.
 - **search** runs a plain-text search across the project and lists `file:line` hits; clicking one
   attaches that file.
-- With a project indexed, the model is offered one extra tool, `read_project_files`, which it calls
-  with the paths it saw on the map. The page reads them through the helper and returns them as the
-  tool result — up to 24 files, 512 kB each, so a request cannot balloon.
+- With a project indexed, the model is offered three tools: `read_project_files` (the paths it saw on
+  the map, up to 24 files, 512 kB each), `search_project` (plain-text search, `file:line` hits) and
+  `find_references` (where a name is used, matching lines included — what makes a rename safe to do).
+  The page runs them through the helper and returns the results as tool messages.
 
 ## Writes, undo and running commands
 

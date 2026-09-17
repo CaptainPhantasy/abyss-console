@@ -43,8 +43,8 @@ row. The work lands in waves — security first, then the change/diff path, then
 | # | weakness (verified) | fix | proof | status |
 |---|---|---|---|---|
 | 1 | **No autonomous apply → test → fix loop.** Applying, running, and feeding failures back are three hand-offs. | One action: apply the patch, run the verify commands, feed failures back, bounded rounds, visible per-round log, cancel. | `node tests/loop.e2e.mjs` | open |
-| 2 | **The model cannot search the project.** Search exists in the interface, not as a tool. | `search_project` tool returning `file:line` hits it can then read. | tool test against the fixture project | open |
-| 3 | **No references tool** — renames are hopeful; the model guesses which callers exist. | `find_references` tool (text-level, with context lines). | tool test: rename target found in 3 files | open |
+| 2 | **The model cannot search the project.** Search exists in the interface, not as a tool. | `search_project` tool: plain-text search returning `file:line` hits, capped at 60 shown / 200 found with the cap stated. | `node tests/features.e2e.mjs` — "B2 search_project returns file:line hits — hits for \"export const\": 2" (browser lane; the stand-in asks for the tool). | fixed |
+| 3 | **No references tool** — renames are hopeful; the model guesses which callers exist. | `find_references` tool: text-level references with the matching lines. | same lane — "B3 find_references names where a symbol is used — references to \"total\": 1". | fixed |
 | 4 | **Silent truncation** — 512 kB per file, 12k characters per tool result, 60 files per folder pull, none signalled. | Every capped read says "cut at N — ask for the rest". | unit test on the truncation notice | open |
 | 5 | **Whole-file writes were allowed** and could clobber a file's tail. | Diffs required above a size threshold (merges with A3). | `tests/files.e2e.mjs` | open |
 | 6 | **The map is size-ranked with no retrieval** — context selection is guesswork. | Relevance ranking (recency, keyword hits, path heuristics) plus retrieval. | fixture test: the relevant file ranks above the big irrelevant one | open |

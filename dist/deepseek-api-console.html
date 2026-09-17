@@ -2235,6 +2235,32 @@ ${z.text}`,
               },
             },
           },
+          {
+            type: "function",
+            function: {
+              name: "search_project",
+              description:
+                "Plain-text search across the indexed project; returns file:line hits. Use it to find where something lives or how it is spelled before asking for files.",
+              parameters: {
+                type: "object",
+                properties: { pattern: { type: "string", description: "the text to look for" } },
+                required: ["pattern"],
+              },
+            },
+          },
+          {
+            type: "function",
+            function: {
+              name: "find_references",
+              description:
+                "Find the places a name is used across the indexed project (text-level; the matching lines come back). Use it before renaming or moving anything.",
+              parameters: {
+                type: "object",
+                properties: { name: { type: "string", description: "the exact name to find" } },
+                required: ["name"],
+              },
+            },
+          },
         ];
       }
       const forecastNow = estimateSend();
@@ -2331,6 +2357,10 @@ ${z.text}`,
             let Fe;
             if (te.function.name === "read_project_files") {
               Fe = { status: "executed", result: await readProjectFiles(ne.paths) };
+            } else if (te.function.name === "search_project") {
+              Fe = { status: "executed", result: await searchProjectText(String(ne.pattern || ""), false) };
+            } else if (te.function.name === "find_references") {
+              Fe = { status: "executed", result: await searchProjectText(String(ne.name || ""), true) };
             } else if (te.function.name === "use_room") {
               const blockedByPlan = i.mcpGate === "PLAN";
               const needsPermission = i.mcpGate === "ASK ALWAYS" || (i.mcpGate === "ASK WHEN NEEDED" && readOnlyRoomTools.indexOf(ne.tool) === -1);
@@ -2620,6 +2650,26 @@ ${z.text}`,
             : "### " + f.path + "\n(not read: " + f.error + ")",
         )
         .join("\n\n");
+    },
+    searchProjectText = async (needle, asReferences) => {
+      const q = String(needle || "").trim().slice(0, 200);
+      if (!q) return asReferences ? "no name given" : "no search text given";
+      const r = await (
+        await fetch(HELPER_URL + "/fs/search?path=" + encodeURIComponent(project.root) + "&q=" + encodeURIComponent(q))
+      ).json();
+      if (!r.hits) return "the helper could not search: " + String(r.error || "");
+      if (!r.count) return (asReferences ? 'no references to "' + q + '"' : 'no matches for "' + q + '"') + " in this project";
+      const lines = r.hits
+        .slice(0, 60)
+        .map((h) => h.path + ":" + h.line + ": " + h.text)
+        .join("\n");
+      return (
+        (asReferences ? 'references to "' + q + '": ' : 'hits for "' + q + '": ') +
+        r.count +
+        (r.count > 60 ? " (showing the first 60)" : "") +
+        (r.count >= 200 ? " (capped at 200 — narrow the search)" : "") +
+        "\n" + lines
+      );
     },
     /* ---- the verify loop: run the project's own command, feed it back ------ */
     runVerify = async (cmd) => {

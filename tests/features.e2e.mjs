@@ -47,6 +47,19 @@ const srv = createServer((req, res) => {
     req.on("end", () => {
       const b = JSON.parse(Buffer.concat(ch).toString() || "{}");
       seen.push(b);
+      const roles = (b.messages || []).map((x) => x.role);
+      if (/search the project for exports/.test(JSON.stringify(b.messages)) && !roles.includes("tool")) {
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        const c = (o) => res.write("data: " + JSON.stringify(o) + "\n\n");
+        c({ choices: [{ delta: { tool_calls: [
+          { index: 0, id: "call_s1", type: "function", function: { name: "search_project", arguments: JSON.stringify({ pattern: "export const" }) } },
+          { index: 1, id: "call_r1", type: "function", function: { name: "find_references", arguments: JSON.stringify({ name: "total" }) } },
+        ] }, finish_reason: null }] });
+        c({ choices: [{ delta: {}, finish_reason: "tool_calls" }] });
+        c({ choices: [], usage: { prompt_tokens: 1000, completion_tokens: 40, prompt_cache_hit_tokens: 900, prompt_cache_miss_tokens: 100 } });
+        res.write("data: [DONE]\n\n"); res.end();
+        return;
+      }
       const text = /finish this for me/.test(JSON.stringify(b.messages))
         ? "Sure:\n\n```js\nfunction count(items) {\n```\n"
         : b.model === "deepseek-v4-pro" ? "PRO says this" : "FLASH says this";
@@ -161,6 +174,20 @@ srv.listen(8899, "127.0.0.1", async () => {
     await sleep(2500);
     const chips = await value("(() => { const t=document.body.innerText; return JSON.stringify(Number((t.match(/file · (checkout|cart)\\.js/g)||[]).length)); })()");
     check("F10 those files attach to the next message", chips === 2, "chips: " + chips);
+
+    /* B2/B3 — the model can search the project and find references */
+    const beforeTools = seen.length;
+    await composer("search the project for exports");
+    await sleep(200);
+    await click("Send ↵");
+    await sleep(4500);
+    const firstCall = seen[beforeTools] || {};
+    const offered = ((firstCall.tools || []).map((x) => x.function && x.function.name)).join(",");
+    check("B2/B3 both project tools are offered", /search_project/.test(offered) && /find_references/.test(offered), "tools: " + offered);
+    const lastReq = seen[seen.length - 1] || {};
+    const toolTexts = (lastReq.messages || []).filter((x) => x.role === "tool").map((x) => String(x.content)).join("\n");
+    check("B2 search_project returns file:line hits", /checkout\.js:1/.test(toolTexts) && /cart\.js:1/.test(toolTexts), (toolTexts.match(/hits for[^\n]*/) || ["(no search result)"])[0]);
+    check("B3 find_references names where a symbol is used", /references to "total"/.test(toolTexts) && /checkout\.js:1/.test(toolTexts), (toolTexts.match(/references to[^\n]*/) || ["(no references result)"])[0]);
 
     /* a code block can be finished by the cheap model (fill-in-the-middle) */
     await composer("finish this for me");
