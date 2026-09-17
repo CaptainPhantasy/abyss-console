@@ -112,3 +112,12 @@ test("writing outside home, /tmp and the storage drives is refused", async () =>
   assert.equal(r.status, 422);
   assert.match(r.body.error, /outside/);
 });
+
+test("a cut listing says it was cut", async () => {
+  for (let i = 0; i < 8; i++) writeFileSync(join(LAB, "many-" + i + ".txt"), "x\n");
+  const t = await get("/fs/tree?limit=5&path=" + encodeURIComponent(LAB));
+  assert.equal(t.status, 200);
+  assert.equal(t.body.files.length, 5, "the walk respected its cap");
+  assert.equal(t.body.truncated, true, "and the reply says the listing is not everything");
+  assert.equal(t.body.shownCount, 5);
+});

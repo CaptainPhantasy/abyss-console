@@ -951,7 +951,7 @@ model_not_found => pre-July names retired. deepseek-v4-flash / deepseek-v4-flash
   MCP_CONTRACT_TEXT = `You are the assistant inside a DeepSeek API console. You are a DeepSeek platform specialist and builder.
 Non-negotiables:
 - You are an expert on everything in the DeepSeek cheat sheet above; cite its facts (prices, limits, rules) precisely and never invent numbers.
-- When asked to BUILD something (an app, script, page, agent, config, doc), deliver the COMPLETE artifact in fenced code blocks with the correct language tag — full implementation, zero placeholders, zero "..." elisions. Multiple files = multiple fenced blocks, each preceded by its own line \`### file: <path>\`. For changes to a file that already exists, send a unified diff with context lines instead — the page checks and applies it hunk by hunk.
+- When asked to BUILD something (an app, script, page, agent, config, doc), deliver the COMPLETE artifact in fenced code blocks with the correct language tag — full implementation, zero placeholders, zero "..." elisions. Multiple files = multiple fenced blocks, each preceded by its own line \`### file: <path>\`. For changes to a file that already exists, send a unified diff with context lines instead — the page checks and applies it hunk by hunk. When you change files, end your reply with one line: \`touched: <path>, <path>\`.
 - Default all designs and generated code to the DeepSeek API (deepseek-flash unless the task genuinely needs v4-pro), applying the cheat sheet: static-prefix prompt ordering for cache hits, correct thinking/streaming/tool-round-trip handling, and cost math per million tokens.
 - Speak plainly: explain any technical term in the same sentence you use it. Lead with the outcome, then the detail.
 - If a fact could have drifted since the sheet's verification date, say so and recommend the Docs tab's live refresh.`,
@@ -2430,7 +2430,15 @@ ${z.text}`,
                     (Fe.status || "error").toUpperCase() +
                     "] " +
                     (Fe.error || Fe.reason || "not executed");
-            H.push({ role: "tool", tool_call_id: te.id, content: String(Ue).slice(0, 12e3) });
+            const ueFull = String(Ue);
+            H.push({
+              role: "tool",
+              tool_call_id: te.id,
+              content:
+                ueFull.length > 12e3
+                  ? ueFull.slice(0, 12e3) + "\n…[cut at 12,000 characters — ask for a smaller piece, a narrower search, or another file]"
+                  : ueFull,
+            });
             x((Fr) => {
               const Rn = [...Fr];
               return (
@@ -2443,6 +2451,10 @@ ${z.text}`,
                 Rn
               );
             });
+          }
+          if (step === 7) {
+            x((te) => [...te, { role: "assistant", error: !0, content: "the tool loop hit its 8-step cap for this turn — everything above is kept; send 'continue' and it picks up from the results it already has." }]);
+            break;
           }
           x((F) => [...F, { role: "assistant", content: "", reasoning: "", streaming: !0, model: i.model }]);
         }
@@ -2634,7 +2646,9 @@ ${z.text}`,
           sendable.length +
           " documents. If you send every one of them that is about " +
           tokens.toLocaleString() +
-          " tokens.\n\n" +
+          " tokens." +
+          (tree.truncated ? "\nNote: the listing is cut — " + tree.shownCount + " of " + tree.count + " files shown, and the walk stops at its own cap; there may be more on disk." : "") +
+          "\n\n" +
           shown.join("\n");
         setProject({ root: tree.root, count: tree.count, bytes: tree.bytes, sendable: sendable.length, tokens, files: tree.files });
         if (i.verifyCmds && i.verifyCmds[tree.root]) setRunCmd(i.verifyCmds[tree.root]);

@@ -1145,12 +1145,15 @@ const server = createServer(async (req, res) => {
     const root = safePath(url.searchParams.get("path") || HOME);
     const limit = Math.min(Number(url.searchParams.get("limit") || 4000), 20000);
     const files = walk(root, limit);
+    const shown = files.slice(0, Math.min(limit, 2000));
     json(res, 200, {
       root,
       count: files.length,
+      shownCount: shown.length,
+      truncated: shown.length < files.length || files.length >= limit,
       textFiles: files.filter((f) => f.text).length,
       bytes: files.reduce((a, f) => a + f.size, 0),
-      files: files.slice(0, Math.min(limit, 2000)),
+      files: shown,
     });
     return;
   }

@@ -27,6 +27,7 @@ writeFileSync(LAB + "/src/checkout.js", "export const total = () => 0;\n");
 writeFileSync(LAB + "/src/cart.js", "export const sum = () => 0;\n");
 writeFileSync(LAB + "/src/legacy.js", Array.from({ length: 25 }, (_, i) => "// old line " + (i + 1)).join("\n") + "\n");
 writeFileSync(LAB + "/check.js", "process.exit(1);\n");
+writeFileSync(LAB + "/src/big.js", "// a big line of source\n".repeat(700));
 
 const seen = [];
 const seenFim = [];
@@ -50,10 +51,10 @@ const srv = createServer((req, res) => {
       const b = JSON.parse(Buffer.concat(ch).toString() || "{}");
       seen.push(b);
       const msgs = b.messages || [];
-      const roles = msgs.map((x) => x.role);
       const lastUser = [...msgs].reverse().find((x) => x.role === "user");
       const lastUserText = String((lastUser && lastUser.content) || "");
-      if (/search the project for exports/.test(lastUserText) && !roles.includes("tool")) {
+      const freshTurn = ((msgs[msgs.length - 1] || {}).role === "user");
+      if (freshTurn && /search the project for exports/.test(lastUserText)) {
         res.writeHead(200, { "content-type": "text/event-stream" });
         const c = (o) => res.write("data: " + JSON.stringify(o) + "\n\n");
         c({ choices: [{ delta: { tool_calls: [
@@ -79,6 +80,15 @@ const srv = createServer((req, res) => {
         const c = (o) => res.write("data: " + JSON.stringify(o) + "\n\n");
         c({ choices: [{ delta: { content: "Fixed:\n\n### file: " + LAB + "/check.js\n```js\nprocess.exit(0);\n```\n" }, finish_reason: null }] });
         c({ choices: [{ delta: {}, finish_reason: "stop" }] });
+        c({ choices: [], usage: { prompt_tokens: 1000, completion_tokens: 40, prompt_cache_hit_tokens: 900, prompt_cache_miss_tokens: 100 } });
+        res.write("data: [DONE]\n\n"); res.end();
+        return;
+      }
+      if (freshTurn && /read the big file/.test(lastUserText)) {
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        const c = (o) => res.write("data: " + JSON.stringify(o) + "\n\n");
+        c({ choices: [{ delta: { tool_calls: [{ index: 0, id: "call_b1", type: "function", function: { name: "read_project_files", arguments: JSON.stringify({ paths: ["src/big.js"] }) } }] }, finish_reason: null }] });
+        c({ choices: [{ delta: {}, finish_reason: "tool_calls" }] });
         c({ choices: [], usage: { prompt_tokens: 1000, completion_tokens: 40, prompt_cache_hit_tokens: 900, prompt_cache_miss_tokens: 100 } });
         res.write("data: [DONE]\n\n"); res.end();
         return;
@@ -177,7 +187,7 @@ srv.listen(8899, "127.0.0.1", async () => {
     const sys = (seen[seen.length - 1] || {}).messages?.[0]?.content || "";
     check("F9 the pin rides in the system message", sys.includes("PINNED: guardrails.md") && sys.includes("never log secrets"), (seen.length - before) + " call(s), system " + sys.length + " chars");
     check("A2 the pinned secret is scrubbed before it leaves", !sys.includes("hunter2hunter2") && /REDACTED/.test(sys), /REDACTED/.test(sys) ? "redaction marker present" : "redaction marker MISSING");
-    check("A23 the build contract teaches the write-card format", sys.includes("### file: <path>"), sys.includes("### file:") ? "taught" : "NOT taught");
+    check("A23 the build contract teaches the write-card format", sys.includes("### file: <path>") && sys.includes("touched:"), sys.includes("### file:") && sys.includes("touched:") ? "taught, plus the touched-files line" : "NOT fully taught");
     check(
       "A22 the spend footer never rides into a request",
       (((seen[seen.length - 1] || {}).messages) || []).every((x) => !/^\*\*Cost of that turn\*\*/.test(String(x.content || ""))),
@@ -224,6 +234,15 @@ srv.listen(8899, "127.0.0.1", async () => {
     const loopRes = await value("(() => { const t=document.body.innerText; return JSON.stringify({ r1: /fix round 1: nothing new to apply/.test(t), r2: /fix round 2: wrote 1 file/.test(t), exit0: /→ exit 0/.test(t), green: /green; stopping after 2 round/.test(t) }); })()");
     check("B1 the fix loop applies, runs, feeds back and stops green", loopRes.r1 && loopRes.r2 && loopRes.exit0 && loopRes.green, JSON.stringify(loopRes));
     check("B1 the loop really wrote the fix to disk", readFileSync(LAB + "/check.js", "utf8").trim() === "process.exit(0);", "check.js now: " + readFileSync(LAB + "/check.js", "utf8").trim());
+
+    /* B4 — a cut tool result says so */
+    await composer("read the big file");
+    await sleep(200);
+    await click("Send ↵");
+    await sleep(4500);
+    const bigReq = seen[seen.length - 1] || {};
+    const bigTool = (bigReq.messages || []).filter((x) => x.role === "tool").map((x) => String(x.content)).join("\n");
+    check("B4 a cut tool result says where it was cut", /cut at 12,000 characters/.test(bigTool), "tool result " + bigTool.length + " chars :: " + bigTool.slice(0, 150).replace(/\n/g, "\\n"));
 
     /* A23 — a bold-filename reply still gets the write card */
     await composer("write to a file please");
