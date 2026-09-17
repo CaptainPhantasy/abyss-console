@@ -6,7 +6,7 @@
 import { spawn, execFileSync } from "node:child_process";
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -14,12 +14,15 @@ import { tmpdir } from "node:os";
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
 const PORT = 8792;
+const AUTH = "/tmp/abyss-attach-e2e-token";
 const LAB = join(tmpdir(), "abyss-attach-test");
 
 let child = null;
+let token = "";
 const at = (p) => `http://127.0.0.1:${PORT}${p}`;
+const hdr = () => (token ? { "x-abyss-token": token } : {});
 const get = async (p, ms = 240000) => {
-  const res = await fetch(at(p), { signal: AbortSignal.timeout(ms) });
+  const res = await fetch(at(p), { headers: hdr(), signal: AbortSignal.timeout(ms) });
   return { status: res.status, body: await res.json().catch(() => null) };
 };
 const attach = (p, q = "") => get("/attach?path=" + encodeURIComponent(p) + q);
@@ -47,15 +50,19 @@ before(async () => {
     `pdftoppm -r 150 -png -f 1 -l 1 ${join(LAB, "note.pdf")} ${join(LAB, "sign")} && mv ${join(LAB, "sign")}-1.png ${join(LAB, "sign.png")}`,
   ]);
 
-  child = spawn(process.execPath, [join(root, "abyss-bridge.mjs"), "--port", String(PORT), "--page", join(root, "dist/deepseek-api-console.html")], { stdio: ["ignore", "pipe", "pipe"] });
+  child = spawn(process.execPath, [join(root, "abyss-bridge.mjs"), "--port", String(PORT), "--page", join(root, "dist/deepseek-api-console.html")], {
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, ABYSS_TOKEN_FILE: AUTH },
+  });
   const up = Date.now() + 15000;
   for (;;) {
     try {
-      if ((await fetch(at("/health"), { signal: AbortSignal.timeout(3000) })).ok) return;
+      if ((await fetch(at("/health"), { signal: AbortSignal.timeout(3000) })).ok) break;
     } catch {}
     if (Date.now() > up) throw new Error("the helper did not start");
     await new Promise((r) => setTimeout(r, 300));
   }
+  token = readFileSync(AUTH, "utf8").trim();
 });
 
 after(() => {
