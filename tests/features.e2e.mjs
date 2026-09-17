@@ -205,6 +205,25 @@ srv.listen(MOCK_PORT, "127.0.0.1", async () => {
     check("F6 session and tags land on disk", (disk.sessions || []).some((x) => x.name === "cart session" && (x.tags || []).includes("money")), (disk.sessions || []).length + " sessions on disk");
     const tagHints = await value("(() => { const d=document.querySelector('datalist#tag-hints'); return JSON.stringify(d ? [...d.querySelectorAll('option')].map((x)=>x.value) : []); })()");
     check("A21 the tag box suggests tags you already use", Array.isArray(tagHints) && tagHints.includes("cart") && tagHints.includes("money"), JSON.stringify(tagHints));
+    /* A21 — the whole library leaves and comes back as one file */
+    const importPath = LAB + "/library-in.json";
+    writeFileSync(importPath, JSON.stringify({ exportedAt: "2026-09-17T00:00:00.000Z", sessions: [{ id: "imp1", name: "imported session", at: "2026-09-17T06:30:00.000Z", tags: ["imported"], messages: [{ role: "user", content: "imported hello" }, { role: "assistant", content: "imported world" }] }], recipes: [{ id: "impr1", name: "imported bluntness", text: "Be blunt. Say what is wrong first." }] }));
+    await typeInto("import library from this path", importPath);
+    await sleep(300);
+    await click("^import library$");
+    await sleep(1600);
+    const libAfterImport = await (await hfetch(HELPER + "/lib")).json();
+    const importedSession = (libAfterImport.sessions || []).find((x) => x.id === "imp1");
+    const importedRecipe = (libAfterImport.recipes || []).find((x) => x.id === "impr1");
+    check(
+      "A21 the library imports from a file, on disk",
+      !!importedSession && (importedSession.messages || []).length === 2 && !!importedRecipe && /blunt/i.test(importedRecipe.text),
+      "session: " + (importedSession ? (importedSession.messages || []).length + " messages" : "missing") + "; recipe: " + (importedRecipe ? "present" : "missing"),
+    );
+    await click("^export library$");
+    await sleep(700);
+    const exportMsg = await value("(() => /exported \\d+ session\\(s\\) and \\d+ recipe\\(s\\) as json/.test(document.body.innerText))()");
+    check("A21 the library exports as one file", exportMsg === true, "export message: " + exportMsg);
     await click("^new$");
     await sleep(400);
     await click("open \\(");

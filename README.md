@@ -204,6 +204,10 @@ session again updates it **in place** (same entry — no clones), a **current:**
 session you are in, and *open (n)* opens sessions as **tabs**: switch between them, close one with ×,
 and the saved copy stays on disk.
 
+**The whole library, in one file.** *export library* downloads every saved session and recipe as
+`abyss-library-<date>.json`; *import library* reads such a file back from a path you paste and merges
+it by id onto the disk copy — the same ids update, new ones are added.
+
 **Recipes.** In Settings, keep an instruction under a name ("house style", "commit message rules").
 Clicking one puts its text in the composer, ready to edit or send.
 

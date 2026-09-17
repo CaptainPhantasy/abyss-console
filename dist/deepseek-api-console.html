@@ -1964,6 +1964,7 @@ function App() {
     [journal, setJournal] = React.useState(null),
     [sessionTags, setSessionTags] = React.useState(""),
     [libNote, setLibNote] = React.useState(""),
+    [libPath, setLibPath] = React.useState(""),
     [forecast, setForecast] = React.useState(null),
     [compare, setCompare] = React.useState(null),
     [compareBusy, setCompareBusy] = React.useState(false),
@@ -2898,6 +2899,45 @@ ${z.text}`,
         }
       } catch {
         setLibNote("helper not running — using the browser copy");
+      }
+    },
+    /* the whole library in one file, and back again */
+    exportLibrary = () => {
+      try {
+        const data = { exportedAt: new Date().toISOString(), sessions, recipes };
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+        const a2 = document.createElement("a");
+        a2.href = URL.createObjectURL(blob);
+        a2.download = "abyss-library-" + new Date().toISOString().slice(0, 10) + ".json";
+        a2.click();
+        URL.revokeObjectURL(a2.href);
+        setSessionMsg("exported " + sessions.length + " session(s) and " + recipes.length + " recipe(s) as json");
+      } catch {
+        setSessionMsg("the browser refused the download");
+      }
+    },
+    importLibrary = async () => {
+      const p2 = libPath.trim();
+      if (!p2) { setSessionMsg("give the path of a library json first"); return; }
+      try {
+        const r = await (await fetch(HELPER_URL + "/fs/read?path=" + encodeURIComponent(p2))).json();
+        if (typeof r.text !== "string") { setSessionMsg("could not read that file: " + (r.error || "the helper said no")); return; }
+        let data = null;
+        try { data = JSON.parse(r.text); } catch { setSessionMsg("that file is not json"); return; }
+        const inSessions = Array.isArray(data && data.sessions) ? data.sessions.filter((x2) => x2 && x2.id) : [];
+        const inRecipes = Array.isArray(data && data.recipes) ? data.recipes.filter((x2) => x2 && x2.id) : [];
+        if (!inSessions.length && !inRecipes.length) { setSessionMsg("nothing to import — that file has no sessions and no recipes"); return; }
+        for (const s2 of inSessions) {
+          try { await fetch(HELPER_URL + "/lib/sessions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(s2) }); } catch {}
+        }
+        for (const r2 of inRecipes) {
+          try { await fetch(HELPER_URL + "/lib/recipes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(r2) }); } catch {}
+        }
+        await loadLibraryFromDisk();
+        setLibPath("");
+        setSessionMsg("imported " + inSessions.length + " session(s) and " + inRecipes.length + " recipe(s)");
+      } catch {
+        setSessionMsg("the helper is not answering");
       }
     },
     /* search inside the words, and show the line that matched */
@@ -4070,6 +4110,15 @@ ${z.text}`,
                               children: ["open (", sessions.length, ")"],
                             }),
                             jsxRuntime.jsx("button", { style: STYLES.ghostBtn, onClick: exportSession, children: "export" }),
+                            jsxRuntime.jsx("button", { style: STYLES.ghostBtn, title: "download every saved session and recipe as one json file", onClick: exportLibrary, children: "export library" }),
+                            jsxRuntime.jsx("input", {
+                              style: { ...STYLES.input, width: 210 },
+                              placeholder: "import library from this path…",
+                              value: libPath,
+                              onChange: (h) => setLibPath(h.target.value),
+                              onKeyDown: (h) => h.key === "Enter" && importLibrary(),
+                            }),
+                            jsxRuntime.jsx("button", { style: STYLES.ghostBtn, title: "read a library json and merge it in — the same id updates, new ids are added", onClick: importLibrary, children: "import library" }),
                             sessionMsg || libNote
                               ? jsxRuntime.jsx("span", {
                                   style: { color: "var(--kelp)", fontFamily: "'JetBrains Mono',monospace", whiteSpace: "nowrap" },
