@@ -18,6 +18,12 @@ Routes: `/` the page · `/health` · `/room/status` · `/room/servers` · `/room
 `/room/call` · `/mcp` (a plain MCP endpoint, so the page's gate and approval system works) ·
 `/fs/tree` · `/fs/read` · `/fs/search` · `/attach?path=…&ocr=1` · `/attach/folder?path=…`.
 
+Everything except `/` and `/health` requires the helper's per-install token. It is generated
+once into `~/.abyss-console/token` (mode 0600; `ABYSS_TOKEN_FILE` overrides the path) and
+injected only into the page the helper serves — so calls from `http://127.0.0.1:8787/` just
+work, and a page from any other origin is refused, preflight included. A `file://` copy of the
+page carries no token and cannot use the helper's routes.
+
 ## Attachments
 
 The paperclip in the composer opens the attach tray: choose files from the browser, or name a path

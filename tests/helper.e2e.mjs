@@ -8,21 +8,25 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { readFileSync } from "node:fs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
 const PORT = 8791;
+const AUTH = "/tmp/abyss-helper-e2e-token";
 
 let child = null;
+let token = "";
 const at = (path) => `http://127.0.0.1:${PORT}${path}`;
+const hdr = () => (token ? { "x-abyss-token": token } : {});
 const get = async (path, ms = 120000) => {
-  const res = await fetch(at(path), { signal: AbortSignal.timeout(ms) });
+  const res = await fetch(at(path), { headers: hdr(), signal: AbortSignal.timeout(ms) });
   return { status: res.status, body: await res.json().catch(() => null) };
 };
 const post = async (path, payload, ms = 120000) => {
   const res = await fetch(at(path), {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...hdr() },
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(ms),
   });
@@ -32,16 +36,19 @@ const post = async (path, payload, ms = 120000) => {
 before(async () => {
   child = spawn(process.execPath, [join(root, "abyss-bridge.mjs"), "--port", String(PORT), "--page", join(root, "dist/deepseek-api-console.html")], {
     stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, ABYSS_TOKEN_FILE: AUTH },
   });
   const up = Date.now() + 15000;
   for (;;) {
     try {
       const r = await fetch(at("/health"), { signal: AbortSignal.timeout(3000) });
-      if (r.ok) return;
+      if (r.ok) break;
     } catch {}
     if (Date.now() > up) throw new Error("the helper did not start within 15 seconds");
     await new Promise((r) => setTimeout(r, 300));
   }
+  token = readFileSync(AUTH, "utf8").trim();
+  assert.ok(token.length >= 32, "the helper generated its token file");
 });
 
 after(() => {

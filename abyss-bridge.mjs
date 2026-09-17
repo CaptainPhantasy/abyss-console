@@ -19,13 +19,19 @@
  *   GET  /fs/read?path=…       one file, with a size cap
  *   GET  /fs/search?path=…&q=… plain-text search across a folder
  *
- * The room is reached through your existing floyd-room-bridge (stdio), which does the
- * room's own onboarding steps and caches the token. This helper names itself
- * `abyss-webapp` in the room's ledger and keeps its own token file.
+ * The room is reached through your existing room bridge (stdio; ROOM_BRIDGE overrides
+ * the path), which does the room's own onboarding steps and caches its token. This
+ * helper names itself `abyss-webapp` in the room's ledger.
+ *
+ * Security: every route except the page itself and /health requires the per-install
+ * token (header x-abyss-token). It is generated once into ~/.abyss-console/token
+ * (ABYSS_TOKEN_FILE overrides) and injected only into the page this helper serves;
+ * browser requests from origins other than loopback are refused, preflight included.
  */
 import { createServer } from "node:http";
 import { spawn, execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, appendFileSync, copyFileSync, existsSync, statSync, readdirSync, realpathSync, mkdirSync } from "node:fs";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { homedir } from "node:os";
 import { join, resolve, extname, basename, dirname } from "node:path";
 
@@ -39,7 +45,22 @@ const PAGE = resolve(flag("--page", join(homedir(), "deepseek-api-console.html")
 const BRIDGE = process.env.ROOM_BRIDGE || join(homedir(), ".local/share/floyd/mcp-servers/floyd-room-bridge/index.mjs");
 const HARNESS = process.env.ROOM_HARNESS || "abyss-webapp";
 const TOKEN_FILE = process.env.ROOM_TOKEN_FILE || join(homedir(), ".local/share/floyd/room-onboarding-abyss.json");
+const AUTH_FILE = process.env.ABYSS_TOKEN_FILE || join(homedir(), ".abyss-console", "token");
 const HOME = homedir();
+/* The per-install token. Generated once, kept 0600, and injected only into the copy
+   of the page this helper serves. Every route except / and /health demands it, so a
+   page from any other origin cannot read this disk, run commands, or reach the room. */
+const HELPER_TOKEN = (() => {
+  try {
+    const t = readFileSync(AUTH_FILE, "utf8").trim();
+    if (t.length >= 16) return t;
+  } catch {}
+  const t = randomBytes(32).toString("hex");
+  mkdirSync(dirname(AUTH_FILE), { recursive: true });
+  writeFileSync(AUTH_FILE, t + "\n", { mode: 0o600 });
+  return t;
+})();
+const LOOPBACK_ORIGIN = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
 const MAX_READ = 8 * 1024 * 1024; /* 8 MB of text per file, by default */
 /* When the page stops talking to us, we stop. launchd wakes us on the next connection. */
 const IDLE_EXIT = Number(flag("--idle-exit", process.env.ABYSS_IDLE_EXIT || 0)); /* seconds, 0 = never */
@@ -652,6 +673,8 @@ function readBody(req, cap = 12 * 1024 * 1024) {
   });
 }
 
+const OPEN_PATHS = new Set(["/", "/index.html", "/deepseek-api-console.html", "/health"]);
+
 const server = createServer(async (req, res) => {
   lastHeard = Date.now();
   busy++;
@@ -660,19 +683,49 @@ const server = createServer(async (req, res) => {
     lastHeard = Date.now();
   });
   const url = new URL(req.url, "http://127.0.0.1");
+
+  /* Origin gate first: only this machine's own pages (loopback) or non-browser callers
+     (no origin) are in. Everything else is refused, preflight included. */
+  const origin = req.headers.origin || "";
+  if (origin && origin !== "null" && !LOOPBACK_ORIGIN.test(origin)) {
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, { "access-control-allow-methods": "GET,POST,OPTIONS" }).end();
+    } else {
+      logRun("auth-refused", url.pathname + " from origin " + origin);
+      json(res, 403, { error: "refused: the helper only answers its own page — origin " + origin + " is not allowed" });
+    }
+    return;
+  }
   if (req.method === "OPTIONS") {
     res.writeHead(204, CORS).end();
     return;
   }
 
-  /* the page itself */
+  /* Token gate: everything except the page itself and /health needs it. */
+  const given = String(req.headers["x-abyss-token"] || "");
+  const givenBuf = Buffer.from(given, "utf8");
+  const realBuf = Buffer.from(HELPER_TOKEN, "utf8");
+  if (!OPEN_PATHS.has(url.pathname) && !(givenBuf.length === realBuf.length && timingSafeEqual(givenBuf, realBuf))) {
+    logRun("auth-refused", url.pathname + " (no token)");
+    json(res, 403, {
+      error:
+        "the helper token is missing or wrong. Open the page from http://127.0.0.1:" + PORT +
+        "/ — the helper puts the token into that copy. (Token file: " + AUTH_FILE + ".)",
+    });
+    return;
+  }
+
+  /* the page itself — served with the helper token injected, and only here */
   if (url.pathname === "/" || url.pathname === "/index.html" || url.pathname === "/deepseek-api-console.html") {
     if (!existsSync(PAGE)) {
       res.writeHead(404, CORS).end("the page file was not found: " + PAGE);
       return;
     }
+    const tokenScript = "<script>window.__ABYSS_TOKEN=" + JSON.stringify(HELPER_TOKEN) + ";</script>";
+    let html = readFileSync(PAGE, "utf8");
+    html = html.includes("<head>") ? html.replace("<head>", "<head>" + tokenScript) : tokenScript + html;
     res.writeHead(200, { ...CORS, "content-type": "text/html; charset=utf-8" });
-    res.end(readFileSync(PAGE));
+    res.end(html);
     return;
   }
 
@@ -690,6 +743,7 @@ const server = createServer(async (req, res) => {
       helper: "abyss-bridge",
       page: PAGE,
       pageExists: existsSync(PAGE),
+      tokenRequired: true,
       mcpEndpoint: `http://127.0.0.1:${PORT}/mcp`,
       roomBridge: BRIDGE,
       roomBridgeExists: existsSync(BRIDGE),

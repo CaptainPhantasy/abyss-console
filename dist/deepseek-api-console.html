@@ -836,6 +836,23 @@ Error generating stack: `+o.message+`
 
 const jsxRuntime = d, React = W, ReactDOM = Zc, createRoot = Tc;
 
+/* Every call to the local helper must carry the helper token. When the page is served
+   by the helper, window.__ABYSS_TOKEN is already set in it; a file:// copy can paste
+   the token into Settings. One wrapper here means no call site can forget the header. */
+(() => {
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = (input, init = {}) => {
+    const url = typeof input === "string" ? input : (input && input.url) || "";
+    if (url.startsWith(HELPER_URL)) {
+      const headers = new Headers((init && init.headers) || {});
+      const token = globalThis.__ABYSS_TOKEN || "";
+      if (token) headers.set("x-abyss-token", token);
+      return origFetch(input, { ...init, headers });
+    }
+    return origFetch(input, init);
+  };
+})();
+
 const API_BASE = "https://api.deepseek.com",
   HELPER_URL = "http://127.0.0.1:8787",
   PRICES = {
