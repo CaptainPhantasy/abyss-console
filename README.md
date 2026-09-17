@@ -118,6 +118,10 @@ filename line — is the form for files that do not exist yet.
 The verify bar runs a command in the project folder through the helper. The helper refuses to run
 anything unless the request says `confirm: true`, so nothing executes behind your back. The output
 and the exit code land in the chat as a message, which is what the model needs to fix a failure.
+**apply & fix** does the whole round-trip in one press: it applies what the last reply proposed
+(write blocks or a unified diff — every write is journaled and undoable), runs the command, hands a
+failure back to the model with the output, and repeats — up to three rounds, with a per-round log
+in the chat and a **stop** button that aborts the round in flight.
 
 ## The cost governor and routing
 

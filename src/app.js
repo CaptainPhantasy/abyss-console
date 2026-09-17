@@ -1127,7 +1127,6 @@ function App() {
     [triage, setTriage] = React.useState(null),
     [traceOpen, setTraceOpen] = React.useState(false),
     [journalMsg, setJournalMsg] = React.useState(""),
-    [fixRounds, setFixRounds] = React.useState(0),
     [sessions, setSessions] = React.useState([]),
     [sessionName, setSessionName] = React.useState(""),
     [sessionQuery, setSessionQuery] = React.useState(""),
@@ -1141,9 +1140,14 @@ function App() {
     [runCmd, setRunCmd] = React.useState(""),
     [runBusy, setRunBusy] = React.useState(!1),
     [lastRun, setLastRun] = React.useState(null),
+    [loopBusy, setLoopBusy] = React.useState(!1),
     Ve = React.useRef(null),
     Qe = React.useRef(null),
-    fileInput = React.useRef(null);
+    fileInput = React.useRef(null),
+    loopCancel = React.useRef(!1),
+    mRef = React.useRef([]);
+  /* the fix loop awaits between rounds, so it reads messages from a ref, never a stale closure */
+  mRef.current = m;
   (React.useEffect(() => {
     (async () => {
       const [h, z, A, F, U, day, savedSessions, savedRecipes] = await Promise.all([
@@ -2125,47 +2129,105 @@ ${z.text}`,
       loadJournal();
     },
     /* ---- the bounded fix loop: run, hand the failure over, run again ------ */
-    runVerifyAndFix = async (rounds) => {
-      const max = rounds || 2;
-      if (fixRounds >= max) {
-        setProjectMsg("that is " + fixRounds + " rounds of fixing — stopping there so the cost stays bounded");
-        return;
-      }
+    applyFixLoop = async () => {
+      if (loopBusy) return;
+      const max = 3;
       const key = project ? project.root : "~";
       const cmd = (i.verifyCmds && i.verifyCmds[key]) || runCmd;
       if (!cmd) {
         setProjectMsg("no command to run — type one in the verify box first");
         return;
       }
-      setFixRounds(fixRounds + 1);
-      setProjectMsg("round " + (fixRounds + 1) + " of " + max + " — running " + cmd + "…");
-      const r = await (
-        await fetch(HELPER_URL + "/run", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ cmd, cwd: project ? project.root : undefined, confirm: true, timeoutMs: 300000 }),
-        })
-      ).json();
-      const tail = ((r.stdout || "") + (r.stderr || "")).slice(-6000);
-      if (r.ok) {
-        setProjectMsg("round " + fixRounds + ": it passes now (exit 0 in " + (r.ms / 1000).toFixed(1) + "s)");
-        x((prev) => [...prev, { role: "user", content: "I ran `" + cmd + "` — it passes now.\n\n```\n" + tail + "\n```" }]);
-        return;
+      setLoopBusy(!0);
+      loopCancel.current = !1;
+      const logLine = (text) => x((prev) => [...prev, { role: "user", content: text }]);
+      const lastReply = () =>
+        [...mRef.current].reverse().find((x2) => x2.role === "assistant" && !x2.error && x2.content && !x2.display && !/^\*\*Cost of that turn\*\*/.test(String(x2.content)));
+      let round = 0;
+      let done = false;
+      try {
+        while (round < max && !loopCancel.current && !done) {
+          round++;
+          /* 1) apply whatever the newest reply proposed */
+          const last = lastReply();
+          const blocks = last ? fileBlocks(last.content) : [];
+          const patch = last ? findPatch(last.content) : null;
+          if (patch) {
+            const pr = await (
+              await fetch(HELPER_URL + "/fs/patch", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ patch: patch.patch, dryRun: false }),
+              })
+            ).json();
+            logLine("fix round " + round + ": applied the diff — " + ((pr && pr.applied) || 0) + " file(s) written" + (pr && pr.conflicts ? ", " + pr.conflicts + " left alone (conflicts)" : ""));
+          } else if (blocks.length) {
+            let wrote = 0;
+            for (const b2 of blocks) {
+              const wr = await (
+                await fetch(HELPER_URL + "/fs/write", {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({ path: b2.path, text: b2.code, why: "apply & fix loop" }),
+                })
+              ).json();
+              if (wr && wr.ok) wrote++;
+            }
+            logLine("fix round " + round + ": wrote " + wrote + " file(s) from the reply");
+          } else {
+            logLine("fix round " + round + ": nothing new to apply — running the command as it is");
+          }
+          if (loopCancel.current) break;
+          /* 2) run the project's command */
+          setRunBusy(!0);
+          const r = await (
+            await fetch(HELPER_URL + "/run", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ cmd, cwd: project ? project.root : undefined, confirm: true, timeoutMs: 300000 }),
+            })
+          ).json();
+          setRunBusy(!1);
+          setLastRun({ ...r, command: cmd });
+          if (r.ok) {
+            logLine("fix round " + round + ": `" + cmd + "` → exit 0 in " + (r.ms / 1000).toFixed(1) + "s — green; stopping after " + round + " round(s)");
+            done = true;
+            break;
+          }
+          const tail = ((r.stdout || "") + (r.stderr || "")).slice(-6000);
+          if (round >= max) {
+            logLine("fix round " + round + ": `" + cmd + "` → exit " + r.code + " — round cap reached (" + max + "); stopping with the failure below");
+            break;
+          }
+          logLine("fix round " + round + ": `" + cmd + "` → exit " + r.code + " — handing the failure to the model");
+          /* 3) feed the failure back; the reply becomes the next round's proposal */
+          await sendMessage(
+            "This command failed in " +
+              (project ? project.root : "my home folder") +
+              " (exit " +
+              r.code +
+              "). Fix it — a unified diff for files that already exist, or a `### file: <path>` block for new ones.\n\n```\n$ " +
+              cmd +
+              "\n" +
+              tail +
+              "\n```",
+          );
+          /* let React flush: the next round reads the newest reply from the ref, not a stale closure */
+          const had = mRef.current.length;
+          for (let w8 = 0; w8 < 60 && mRef.current.length <= had; w8++) await new Promise((ok) => setTimeout(ok, 100));
+        }
+      } finally {
+        setRunBusy(!1);
+        setLoopBusy(!1);
+        setProjectMsg(loopCancel.current ? "stopped by you" : done ? "green — the loop is done" : "loop finished (round cap)");
       }
-      setProjectMsg("round " + (fixRounds + 1) + ": still failing (exit " + r.code + ") — handing it to the model");
-      /* hand the failure straight to the send path — the composer state is not
-         updated yet at this point, so reading it back would send nothing at all */
-      sendMessage(
-        "This command failed in " +
-          (project ? project.root : "my home folder") +
-          " (exit " +
-          r.code +
-          "). Fix it, and answer with a unified diff I can apply.\n\n```\n$ " +
-          cmd +
-          "\n" +
-          tail +
-          "\n```",
-      );
+    },
+    stopFixLoop = () => {
+      loopCancel.current = !0;
+      try {
+        Qe.current && Qe.current.abort();
+      } catch {}
+      setProjectMsg("stopping the loop…");
     },
     /* ---- what this send will cost, before it goes ------------------------- */
     estimateSend = () => {
@@ -2566,13 +2628,13 @@ ${z.text}`,
                   if (patch) {
                     return jsxRuntime.jsx("div", {
                       style: { padding: "0 26px 8px" },
-                      children: jsxRuntime.jsx(PatchReview, { found: patch, onNote: (msg) => M(msg) }),
+                      children: jsxRuntime.jsx(PatchReview, { found: patch, onNote: (msg) => M(msg), key: m.length }),
                     });
                   }
                   return blocks.length
                     ? jsxRuntime.jsx("div", {
                         style: { padding: "0 26px 8px" },
-                        children: jsxRuntime.jsx(WriteReview, { blocks, onNote: (msg) => M(msg) }),
+                        children: jsxRuntime.jsx(WriteReview, { blocks, onNote: (msg) => M(msg), key: m.length }),
                       })
                     : null;
                 })(),
@@ -3293,19 +3355,16 @@ ${z.text}`,
                               }),
                               jsxRuntime.jsx("button", {
                                 style: STYLES.ghostBtn,
-                                disabled: runBusy,
-                                title: "run it, hand the failure to the model, then run again — capped so the cost stays bounded",
-                                onClick: () => runVerifyAndFix(2),
-                                children: "run & fix (" + fixRounds + "/2)",
+                                disabled: runBusy || loopBusy,
+                                title: "apply what the last reply proposed, run the command, hand failures back to the model — up to 3 rounds, with a log and a stop",
+                                onClick: () => applyFixLoop(),
+                                children: loopBusy ? "loop running…" : "apply & fix (3)",
                               }),
-                              fixRounds
+                              loopBusy
                                 ? jsxRuntime.jsx("button", {
                                     style: STYLES.ghostBtn,
-                                    onClick: () => {
-                                      setFixRounds(0);
-                                      setProjectMsg("round counter back to zero");
-                                    },
-                                    children: "reset rounds",
+                                    onClick: () => stopFixLoop(),
+                                    children: "stop",
                                   })
                                 : null,
                               jsxRuntime.jsx("button", {

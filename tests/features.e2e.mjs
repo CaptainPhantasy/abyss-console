@@ -26,6 +26,7 @@ mkdirSync(LAB + "/src", { recursive: true });
 writeFileSync(LAB + "/src/checkout.js", "export const total = () => 0;\n");
 writeFileSync(LAB + "/src/cart.js", "export const sum = () => 0;\n");
 writeFileSync(LAB + "/src/legacy.js", Array.from({ length: 25 }, (_, i) => "// old line " + (i + 1)).join("\n") + "\n");
+writeFileSync(LAB + "/check.js", "process.exit(1);\n");
 
 const seen = [];
 const seenFim = [];
@@ -68,6 +69,15 @@ const srv = createServer((req, res) => {
         res.writeHead(200, { "content-type": "text/event-stream" });
         const c = (o) => res.write("data: " + JSON.stringify(o) + "\n\n");
         c({ choices: [{ delta: { content: "Here it is:\n\n**" + LAB + "/src/legacy.js**\n```js\nexport const legacy = () => 1;\n```\n" }, finish_reason: null }] });
+        c({ choices: [{ delta: {}, finish_reason: "stop" }] });
+        c({ choices: [], usage: { prompt_tokens: 1000, completion_tokens: 40, prompt_cache_hit_tokens: 900, prompt_cache_miss_tokens: 100 } });
+        res.write("data: [DONE]\n\n"); res.end();
+        return;
+      }
+      if (/This command failed/.test(lastUserText)) {
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        const c = (o) => res.write("data: " + JSON.stringify(o) + "\n\n");
+        c({ choices: [{ delta: { content: "Fixed:\n\n### file: " + LAB + "/check.js\n```js\nprocess.exit(0);\n```\n" }, finish_reason: null }] });
         c({ choices: [{ delta: {}, finish_reason: "stop" }] });
         c({ choices: [], usage: { prompt_tokens: 1000, completion_tokens: 40, prompt_cache_hit_tokens: 900, prompt_cache_miss_tokens: 100 } });
         res.write("data: [DONE]\n\n"); res.end();
@@ -122,7 +132,7 @@ srv.listen(8899, "127.0.0.1", async () => {
     await ab("open", "http://127.0.0.1:8899/");
     await sleep(900);
     await ab("eval", `localStorage.setItem('deepseek_console:apikey', JSON.stringify('sk-stand-in'));
-      localStorage.setItem('deepseek_console:settings', JSON.stringify({ model:'deepseek-flash', thinking:false, effort:'high', maxTokens:8000, mcpOn:false, mcpUrl:'', mcpGate:'PLAN', mcpToken:'', helperToken:${JSON.stringify(HTOKEN)}, redact:true, budgetUsd:0, panelsOpen:true, pinned:[{id:'p1', name:'guardrails.md', text:'house rule: never log secrets — password=hunter2hunter2', tokens:12}] }));
+      localStorage.setItem('deepseek_console:settings', JSON.stringify({ model:'deepseek-flash', thinking:false, effort:'high', maxTokens:8000, mcpOn:false, mcpUrl:'', mcpGate:'PLAN', mcpToken:'', helperToken:${JSON.stringify(HTOKEN)}, redact:true, budgetUsd:0, panelsOpen:true, verifyCmds:{${JSON.stringify(LAB)}:"node check.js"}, pinned:[{id:'p1', name:'guardrails.md', text:'house rule: never log secrets — password=hunter2hunter2', tokens:12}] }));
       localStorage.removeItem('deepseek_console:daily'); localStorage.removeItem('deepseek_console:sessions'); location.reload(); 'x'`);
     await sleep(2200);
 
@@ -208,16 +218,23 @@ srv.listen(8899, "127.0.0.1", async () => {
     check("B2 search_project returns file:line hits", /checkout\.js:1/.test(toolTexts) && /cart\.js:1/.test(toolTexts), (toolTexts.match(/hits for[^\n]*/) || ["(no search result)"])[0]);
     check("B3 find_references names where a symbol is used", /references to "total"/.test(toolTexts) && /checkout\.js:1/.test(toolTexts), (toolTexts.match(/references to[^\n]*/) || ["(no references result)"])[0]);
 
+    /* B1 — one click: apply, run, feed back, repeat; bounded, logged, stoppable */
+    await click("apply & fix");
+    await sleep(12000);
+    const loopRes = await value("(() => { const t=document.body.innerText; return JSON.stringify({ r1: /fix round 1: nothing new to apply/.test(t), r2: /fix round 2: wrote 1 file/.test(t), exit0: /→ exit 0/.test(t), green: /green; stopping after 2 round/.test(t) }); })()");
+    check("B1 the fix loop applies, runs, feeds back and stops green", loopRes.r1 && loopRes.r2 && loopRes.exit0 && loopRes.green, JSON.stringify(loopRes));
+    check("B1 the loop really wrote the fix to disk", readFileSync(LAB + "/check.js", "utf8").trim() === "process.exit(0);", "check.js now: " + readFileSync(LAB + "/check.js", "utf8").trim());
+
     /* A23 — a bold-filename reply still gets the write card */
     await composer("write to a file please");
     await sleep(200);
     await click("Send ↵");
     await sleep(4000);
-    const wcard = await value("(() => { const t=document.body.innerText; return JSON.stringify({ card: /proposes writing 1 file/.test(t), name: /legacy\\.js/.test(t) }); })()");
+    const wcard = await value("(() => { const el=[...document.querySelectorAll('div')].find((x)=>/^This reply proposes writing/.test((x.textContent||'').trim())); const t=el ? el.textContent : ''; return JSON.stringify({ card: !!el, name: /legacy\\.js/.test(t) }); })()");
     check("A23 the write card renders for the taught format", wcard.card && wcard.name, JSON.stringify(wcard));
     await click("^compare$");
-    await sleep(1800);
-    const wdiff = await value("(() => { const t=document.body.innerText; return JSON.stringify({ del: /− \\/\\/ old line 1/.test(t), add: /\\+ export const legacy/.test(t), nudge: /removes 25 lines/.test(t) }); })()");
+    await sleep(2600);
+    const wdiff = await value("(() => { const t=document.body.innerText; return JSON.stringify({ del: /− \\/\\/ old line 1/.test(t), add: /\\+ export const legacy/.test(t), nudge: /removes 25 lines/.test(t), err: /could not read/.test(t) || /not answering/.test(t) }); })()");
     check("A4 the card shows a real diff and flags a big rewrite", wdiff.del && wdiff.add && wdiff.nudge, JSON.stringify(wdiff));
 
     /* a code block can be finished by the cheap model (fill-in-the-middle) */
