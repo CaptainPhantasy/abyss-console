@@ -80,7 +80,7 @@ row. The work lands in waves — security first, then the change/diff path, then
 The suite that must stay green for any merge (run from the repo root):
 
     node build.mjs --check                          # every piece parses
-    node --test tests/roi.unit.mjs tests/redact.unit.mjs tests/request-security.unit.mjs
+    node --test tests/roi.unit.mjs tests/redact.unit.mjs tests/request-security.unit.mjs tests/diff.unit.mjs
     node --test tests/helper.e2e.mjs tests/helper-auth.e2e.mjs
     node --test tests/attach.e2e.mjs tests/files.e2e.mjs tests/git.e2e.mjs
     node tests/dc-gate.e2e.mjs                      # 66 assertions

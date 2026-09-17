@@ -75,7 +75,7 @@ test('project search reports file lines and states result caps', async () => {
 
 test('request history excludes current and legacy cost footers while keeping tool results', () => {
   const source = app.slice(app.indexOf('Tn = (h, z) =>'), app.indexOf('    sendMessage = async'));
-  const ctx = vm.createContext({ i: { pinned: [] }, CHEATSHEET: '', MCP_CONTRACT_TEXT: '', todayIndiana: () => '2026-09-17', u: { verified: 'fixture' }, gitStatus: null });
+  const ctx = vm.createContext({ i: { pinned: [] }, CHEATSHEET: '', MCP_CONTRACT_TEXT: '', todayIndiana: () => '2026-09-17', u: { verified: 'fixture' }, gitStatus: null, task: null });
   vm.runInContext('const ' + source.trim().replace(/,$/, ';') + '\nglobalThis.build = Tn;', ctx);
   const messages = ctx.build([
     { role: 'assistant', content: 'normal answer' },
@@ -88,12 +88,14 @@ test('request history excludes current and legacy cost footers while keeping too
   assert.ok(messages.some(m => m.content === 'normal answer'));
   assert.ok(messages.some(m => m.role === 'tool' && m.tool_call_id === 'call_1'));
 
-  /* the same builder, with a git status in hand, carries the branch and the change list */
+  /* the same builder, with git and a task in hand, carries both */
   const gctx = vm.createContext({ i: { pinned: [] }, CHEATSHEET: '', MCP_CONTRACT_TEXT: '', todayIndiana: () => '2026-09-17', u: { verified: 'fixture' },
-    gitStatus: { ok: true, branch: 'main', head: 'abc1234', clean: false, changed: [{ xy: ' M', path: 'src/wip.js' }] } });
+    gitStatus: { ok: true, branch: 'main', head: 'abc1234', clean: false, changed: [{ xy: ' M', path: 'src/wip.js' }] },
+    task: { goal: 'fixture goal', steps: [{ text: 'one', done: true }, { text: 'two', done: false }] } });
   vm.runInContext('const ' + source.trim().replace(/,$/, ';') + '\nglobalThis.build = Tn;', gctx);
   const gmessages = gctx.build([{ role: 'user', content: 'what changed?' }], 'what changed?');
   assert.match(String(gmessages[0].content), /## GIT: branch main at abc1234 · 1 uncommitted change: src\/wip\.js/);
+  assert.match(String(gmessages[0].content), /## TASK: fixture goal\n- \[x\] one\n- \[ \] two/);
 });
 
 test('file proposals accept the taught heading and legacy filename but reject ordinary bold prose', () => {
