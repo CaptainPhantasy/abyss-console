@@ -185,7 +185,56 @@ srv.listen(8899, "127.0.0.1", async () => {
     await sleep(600);
     const row = await read("(() => { const b=[...document.querySelectorAll('button')].filter(x=>x.title==='open this session')[0]; return b ? b.innerText.replace(/\\n/g,' ') : ''; })()");
     check("F6 search shows the line it matched", /#cart #money/.test(row) && /what is the cart total/.test(row), row.slice(0, 112));
+    /* A6 — saving an open session again updates it in place */
+    await ab("eval", "(() => { const b=[...document.querySelectorAll('button')].filter((x)=>x.title==='open this session').find((x)=>/cart session/.test(x.textContent||'')); if(!b) return 'no'; b.click(); return 'ok'; })()");
+    await sleep(900);
+    const libBefore = await (await hfetch("http://127.0.0.1:8787/lib")).json();
+    const cartBefore = (libBefore.sessions || []).filter((x) => x.name === "cart session").sort((a, b) => String(b.at).localeCompare(String(a.at)))[0] || {};
+    const totalBefore = (libBefore.sessions || []).length;
+    await composer("a second turn for the session test");
+    await sleep(200);
+    await click("Send ↵");
+    await sleep(3500);
+    await click("^save$");
+    await sleep(1500);
+    const libAfter = await (await hfetch("http://127.0.0.1:8787/lib")).json();
+    const cartAfter = (libAfter.sessions || []).filter((x) => x.id === cartBefore.id)[0] || {};
+    check(
+      "A6 saving again updates in place, no clone",
+      !!cartBefore.id && (libAfter.sessions || []).length === totalBefore && (cartAfter.messages || []).length > (cartBefore.messages || []).length,
+      "entry " + cartBefore.id + ": " + (cartBefore.messages || []).length + " → " + (cartAfter.messages || []).length + " messages; library " + totalBefore + " → " + (libAfter.sessions || []).length,
+    );
+    /* A7 — sessions open as tabs, both stay reachable */
+    await click("^new$");
+    await sleep(400);
+    await typeInto("name this session", "canvas tab two");
+    await composer("a third chat for the tab test");
+    await sleep(200);
+    await click("Send ↵");
+    await sleep(3500);
+    await click("^save$");
+    await sleep(1200);
+    await click("^new$");
+    await sleep(400);
+    await click("open \\(");
+    await sleep(700);
+    await typeInto("search saved sessions", "");
+    await sleep(400);
+    await ab("eval", "(() => { const b=[...document.querySelectorAll('button')].filter((x)=>x.title==='open this session').find((x)=>/canvas tab two/.test(x.textContent||'')); if(!b) return 'no'; b.click(); return 'ok'; })()");
+    await sleep(900);
+    await click("open \\(");
+    await sleep(700);
+    await ab("eval", "(() => { const b=[...document.querySelectorAll('button')].filter((x)=>x.title==='open this session').find((x)=>/cart session/.test(x.textContent||'')); if(!b) return 'no'; b.click(); return 'ok'; })()");
+    await sleep(900);
+    const tbl = await value("(() => { const t2=[...document.querySelectorAll('button')].filter((x)=>x.title==='switch to this open chat').map((x)=>x.textContent.trim()); const chip=(document.body.innerText.match(/current: [^\\n·]+/)||[''])[0]; return JSON.stringify({ tabs: t2, chip }); })()");
+    check("A7 two sessions stay open as tabs", tbl.tabs.includes("canvas tab two") && tbl.tabs.includes("cart session") && /current: cart session/.test(tbl.chip), JSON.stringify(tbl));
+    await ab("eval", "(() => { const b=[...document.querySelectorAll('button')].filter((x)=>x.title==='switch to this open chat').find((x)=>/canvas tab two/.test(x.textContent||'')); if(!b) return 'no'; b.click(); return 'ok'; })()");
+    await sleep(700);
+    const tbl2 = await value("(() => { const chip=(document.body.innerText.match(/current: [^\\n·]+/)||[''])[0]; return JSON.stringify({ chip }); })()");
+    check("A7 switching tabs brings the other chat back", /current: canvas tab two/.test(tbl2.chip) && tbl2.chip !== tbl.chip, JSON.stringify({ before: tbl.chip, after: tbl2.chip }));
     /* A19 — delete takes two presses, and only the second one removes */
+    await click("open \\(");
+    await sleep(700);
     const before19 = ((await (await hfetch("http://127.0.0.1:8787/lib")).json()).sessions || []).length;
     await ab("eval", "(() => { const b=[...document.querySelectorAll('button')].find((x)=>(x.title||'').startsWith('delete')); if(!b) return 'no'; b.click(); return 'ok'; })()");
     await sleep(600);

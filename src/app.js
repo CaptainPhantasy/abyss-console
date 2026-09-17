@@ -1147,6 +1147,8 @@ function App() {
     [sent, setSent] = React.useState(null),
     [palette, setPalette] = React.useState(false),
     [palQuery, setPalQuery] = React.useState(""),
+    [tabs, setTabs] = React.useState([]),
+    [activeTab, setActiveTab] = React.useState(null),
     [confirmKill, setConfirmKill] = React.useState(""),
     [confirmUnpin, setConfirmUnpin] = React.useState(""),
     [sessions, setSessions] = React.useState([]),
@@ -2064,10 +2066,12 @@ ${z.text}`,
         .filter(Boolean);
     },
     saveSession = async (name) => {
-      const label = (name || sessionName || "").trim() || "session " + new Date().toLocaleString();
+      const bound = activeTab && sessions.some((s2) => s2.id === activeTab) ? activeTab : null;
+      const boundName = bound ? ((tabs.find((t2) => t2.key === bound) || {}).name || "") : "";
+      const label = (name || sessionName || "").trim() || boundName || "session " + new Date().toLocaleString();
       const cost = daily && daily.date === todayIndiana() ? daily.cost : 0;
       const entry = {
-        id: "s" + Date.now(),
+        id: bound || "s" + Date.now(),
         name: label,
         at: new Date().toISOString(),
         project: project ? project.root : null,
@@ -2076,21 +2080,53 @@ ${z.text}`,
         calls: daily ? daily.calls : 0,
       };
       entry.tags = sessionTags.split(",").map((t2) => t2.trim()).filter(Boolean);
-      const next = [entry, ...sessions].slice(0, 100);
+      const next = (bound ? [entry, ...sessions.filter((s2) => s2.id !== bound)] : [entry, ...sessions]).slice(0, 100);
       setSessions(next);
       await storageSet(STORAGE_KEYS.sessions, next);
       pushSessionToDisk(entry);
+      setActiveTab(entry.id);
+      setTabs((prev2) => {
+        const kept2 = prev2.map((t2) => (t2.key === entry.id ? { ...t2, name: label, messages: entry.messages } : t2));
+        return prev2.some((t2) => t2.key === entry.id) ? kept2 : [...prev2, { key: entry.id, id: entry.id, name: label, messages: entry.messages }];
+      });
       setSessionName("");
       setSessionTags("");
-      setSessionMsg("saved \"" + label + "\" (" + entry.messages.length + " messages" + (entry.tags.length ? ", tags: " + entry.tags.join(", ") : "") + ")");
+      setSessionMsg((bound ? "updated" : "saved") + " \"" + label + "\" (" + entry.messages.length + " messages" + (entry.tags.length ? ", tags: " + entry.tags.join(", ") : "") + ")");
     },
     openSession = (entry) => {
+      if (activeTab) setTabs((prev2) => prev2.map((t2) => (t2.key === activeTab ? { ...t2, messages: m.filter((x) => !x.streaming) } : t2)));
       x(entry.messages.map((mm) => ({ role: mm.role, content: mm.content, model: mm.model, error: mm.error })));
+      setTabs((prev2) => (prev2.some((t2) => t2.key === entry.id) ? prev2 : [...prev2, { key: entry.id, id: entry.id, name: entry.name, messages: entry.messages }]));
+      setActiveTab(entry.id);
       if (entry.project) indexProject(entry.project);
       setSessionOpen(!1);
-      setSessionMsg("opened \"" + entry.name + "\" — the chat now continues from there");
+      setSessionMsg("opened \"" + entry.name + "\" as a tab — the other open chat keeps its tab");
+    },
+    switchTab = (key) => {
+      if (key === activeTab) return;
+      if (activeTab) setTabs((prev2) => prev2.map((t2) => (t2.key === activeTab ? { ...t2, messages: m.filter((x) => !x.streaming) } : t2)));
+      const t2 = tabs.find((q2) => q2.key === key);
+      if (!t2) return;
+      setActiveTab(key);
+      x((t2.messages || []).map((mm) => ({ role: mm.role, content: mm.content, model: mm.model, error: mm.error })));
+      setSessionMsg("switched to \"" + t2.name + "\"");
+    },
+    closeTab = (key) => {
+      setTabs((prev2) => prev2.filter((t2) => t2.key !== key));
+      if (activeTab === key) {
+        setActiveTab(null);
+        x([]);
+      }
+      setSessionMsg("tab closed — the saved session is still on disk");
     },
     deleteSession = async (id) => {
+      if (tabs.some((t2) => t2.key === id)) {
+        setTabs((prev2) => prev2.filter((t2) => t2.key !== id));
+        if (activeTab === id) {
+          setActiveTab(null);
+          x([]);
+        }
+      }
       const next = sessions.filter((x2) => x2.id !== id);
       setSessions(next);
       await storageSet(STORAGE_KEYS.sessions, next);
@@ -3099,11 +3135,32 @@ ${z.text}`,
                             jsxRuntime.jsx("button", {
                               style: STYLES.ghostBtn,
                               onClick: () => {
+                                if (activeTab) setTabs((prev2) => prev2.map((t2) => (t2.key === activeTab ? { ...t2, messages: m.filter((x) => !x.streaming) } : t2)));
+                                setActiveTab(null);
                                 x([]);
-                                setSessionMsg("the chat is clear — this does not touch what you saved");
+                                setSessionMsg("the chat is clear — open chats keep their tabs; saved sessions are untouched");
                               },
                               children: "new",
                             }),
+                            jsxRuntime.jsx("span", {
+                              style: { color: "var(--kelp)", fontFamily: "'JetBrains Mono',monospace", whiteSpace: "nowrap", fontSize: 11 },
+                              children: activeTab ? "current: " + ((tabs.find((t2) => t2.key === activeTab) || {}).name || "?") : "current: unsaved chat",
+                            }),
+                            tabs.map((t2) =>
+                              jsxRuntime.jsxs(
+                                "span",
+                                { style: { display: "flex", gap: 6, alignItems: "center", ...STYLES.chip, width: "auto", padding: "3px 10px", fontSize: 11, borderColor: t2.key === activeTab ? "var(--sonar)" : undefined }, children: [
+                                  jsxRuntime.jsx("button", {
+                                    style: { background: "none", border: 0, padding: 0, color: t2.key === activeTab ? "var(--foam)" : "var(--kelp)", cursor: "pointer", font: "inherit" },
+                                    title: "switch to this open chat",
+                                    onClick: () => switchTab(t2.key),
+                                    children: t2.name,
+                                  }),
+                                  jsxRuntime.jsx("button", { style: STYLES.trayX, title: "close this tab (the saved session stays on disk)", onClick: () => closeTab(t2.key), children: "×" }),
+                                ] },
+                                t2.key,
+                              ),
+                            ),
                             jsxRuntime.jsxs("button", {
                               style: STYLES.ghostBtn,
                               onClick: () => setSessionOpen(!sessionOpen),

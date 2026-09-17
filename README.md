@@ -176,7 +176,10 @@ the scrubber can be switched off in Settings. What it catches is listed in the u
 **Sessions.** Name the current chat, press *save*, and it is kept with its date, its project, its
 message count and what it cost. *open (n)* lists them and searches them — by name, by project, or by
 anything said inside them. *export* writes the whole thing as a Markdown file with a per-message
-table and the cost it ran up. *new* clears the chat without touching anything saved.
+table and the cost it ran up. *new* clears the chat without touching anything saved. Saving an open
+session again updates it **in place** (same entry — no clones), a **current:** chip shows which
+session you are in, and *open (n)* opens sessions as **tabs**: switch between them, close one with ×,
+and the saved copy stays on disk.
 
 **Recipes.** In Settings, keep an instruction under a name ("house style", "commit message rules").
 Clicking one puts its text in the composer, ready to edit or send.
