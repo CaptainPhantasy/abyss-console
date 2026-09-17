@@ -371,6 +371,8 @@ srv.listen(MOCK_PORT, "127.0.0.1", async () => {
 
     /* B2/B3 — the model can search the project and find references */
     const beforeTools = seen.length;
+    await click("^attach map$");
+    await sleep(500);
     await composer("search the project for exports");
     await sleep(200);
     await click("Send ↵");
@@ -384,6 +386,10 @@ srv.listen(MOCK_PORT, "127.0.0.1", async () => {
     check("B3 find_references names where a symbol is used", /references to "total"/.test(toolTexts) && /checkout\.js:1/.test(toolTexts), (toolTexts.match(/references to[^\n]*/) || ["(no references result)"])[0]);
     const toolPeak = await value("(() => (globalThis.__ABYSS_TOOLS || {}).peak || 0)()");
     check("B10 independent reads run together", toolPeak >= 2, "peak concurrent tool runs: " + toolPeak);
+    const mapMsg = ((lastReq.messages || []).map((x) => String(x.content || "")).find((c) => c.includes("### attached: project map")) || "");
+    const atCart = mapMsg.indexOf("cart.js");
+    const atBig = mapMsg.indexOf("big.js");
+    check("B6 the map ranks the relevant file above the big one", !!mapMsg && atCart !== -1 && atBig !== -1 && atCart < atBig, mapMsg ? "cart at " + atCart + ", big at " + atBig : "(no map in the request)");
 
     /* A5/B9 — git: the panel on the page, and the branch plus changes in the context */
     const sysB9 = String((((firstCall || {}).messages || [])[0] || {}).content || "");

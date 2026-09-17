@@ -1909,19 +1909,54 @@ ${z.text}`,
         }
         const byDir = new Map();
         const sendable = tree.files.filter((f) => f.kind === "text" || f.kind === "document");
+        /* relevance, not size: names you have used, recent edits and shallow paths outrank bulk */
+        const mtimes = tree.files.map((f) => f.mtime || 0);
+        const newestM = Math.max(...mtimes, 0);
+        const oldestM = Math.min(...mtimes, newestM);
+        const asked = (
+          m.filter((x2) => x2.role === "user").map((x2) => String(x2.content || "")).join(" ").slice(-4000) +
+          " " +
+          (sessionName || "") +
+          " " +
+          (sessionTags || "")
+        ).toLowerCase();
+        const askedTokens = [...new Set((asked.match(/[a-z0-9_.-]{3,}/g) || []))].slice(0, 400);
+        const scoreOf = (f) => {
+          let s2 = 0;
+          const rel = f.rel.toLowerCase();
+          const base = rel.split("/").pop();
+          for (const tok of askedTokens) {
+            if (base.includes(tok)) s2 += 6;
+            else if (rel.includes(tok)) s2 += 3;
+          }
+          if (/^(src|lib|app|packages|api|server)\//.test(rel)) s2 += 2;
+          if (/(^|\/)(index|main|app|server|route|api)\./i.test(rel)) s2 += 3;
+          s2 += Math.max(0, 6 - rel.split("/").length);
+          if (newestM > oldestM && f.mtime) s2 += ((f.mtime - oldestM) / (newestM - oldestM)) * 4;
+          s2 += Math.min(2, f.size / 60000);
+          return s2;
+        };
         for (const f of tree.files) {
           const rel = f.path.slice(tree.root.length + 1) || f.path;
           const dir = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : ".";
           if (!byDir.has(dir)) byDir.set(dir, []);
-          byDir.get(dir).push({ rel, size: f.size, kind: f.kind });
+          byDir.get(dir).push({ rel, size: f.size, kind: f.kind, mtime: f.mtime || 0, score: scoreOf({ rel, size: f.size, mtime: f.mtime || 0 }) });
         }
+        /* the three that look most relevant overall are starred wherever they appear */
+        const starred = new Set(
+          [...byDir.values()]
+            .flat()
+            .sort((a, b) => b.score - a.score || b.size - a.size)
+            .slice(0, 3)
+            .map((f) => f.rel),
+        );
         const dirs = [...byDir.entries()].sort((a, b) => a[0].localeCompare(b[0]));
         const shown = [];
         for (const [dir, list] of dirs) {
           if (shown.length > 700) break;
           shown.push(dir + "/  (" + list.length + ")");
-          for (const f of list.sort((a, b) => b.size - a.size).slice(0, 12)) {
-            shown.push("   " + f.rel.split("/").pop() + "  " + (f.size / 1024).toFixed(1) + " kB  " + f.kind);
+          for (const f of list.sort((a, b) => b.score - a.score || b.size - a.size).slice(0, 12)) {
+            shown.push("   " + (starred.has(f.rel) ? "★ " : "") + f.rel.split("/").pop() + "  " + (f.size / 1024).toFixed(1) + " kB  " + f.kind);
           }
         }
         const bytes = sendable.reduce((a, f) => a + f.size, 0);
@@ -1940,6 +1975,7 @@ ${z.text}`,
           " documents. If you send every one of them that is about " +
           tokens.toLocaleString() +
           " tokens." +
+          " Ranked by relevance to this conversation (names you have used, recent edits, shallowness) — not by size; ★ marks the three files that look most relevant to what you are working on." +
           (tree.truncated ? "\nNote: the listing is cut — " + tree.shownCount + " of " + tree.count + " files shown, and the walk stops at its own cap; there may be more on disk." : "") +
           "\n\n" +
           shown.join("\n");

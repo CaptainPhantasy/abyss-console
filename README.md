@@ -106,10 +106,11 @@ file the walk returns carries its modification time, and coming back to the tab 
 one with the one you indexed. Files changed — the row turns amber with "files changed — press
 re-index", and the **re-index** button in the project bar walks the folder again.
 
-- **attach map** puts a compact map in the next message: directories, the biggest files, sizes and
-  kinds, plus the token arithmetic. Cheap (264 tokens for this project) and it is what tells the
-  model which paths exist. If the walk hits its cap, the map says the listing is cut and how much
-  of it is shown.
+- **attach map** puts a compact map in the next message: directories, the most **relevant** files
+  (names you have used, recent edits, shallowness — ★ marks the top three), sizes and kinds, plus
+  the token arithmetic. Cheap (264 tokens for this project) and it is what tells the model which
+  paths exist. If the walk hits its cap, the map says the listing is cut and how much of it is
+  shown.
 - **search** runs a plain-text search across the project and lists `file:line` hits; clicking one
   attaches that file.
 - With a project indexed, the model is offered three tools: `read_project_files` (the paths it saw on
