@@ -78,6 +78,17 @@ const srv = createServer((req, res) => {
         res.write("data: [DONE]\n\n"); res.end();
         return;
       }
+      if (freshTurn && /plan this out/.test(lastUserText)) {
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        const c = (o) => res.write("data: " + JSON.stringify(o) + "\n\n");
+        c({ choices: [{ delta: { tool_calls: [
+          { index: 0, id: "call_t1", type: "function", function: { name: "task_update", arguments: JSON.stringify({ goal: "ship the map check", steps: [{ text: "rank the map", done: true }, { text: "prove it", done: false }] }) } },
+        ] }, finish_reason: null }] });
+        c({ choices: [{ delta: {}, finish_reason: "tool_calls" }] });
+        c({ choices: [], usage: { prompt_tokens: 1000, completion_tokens: 40, prompt_cache_hit_tokens: 900, prompt_cache_miss_tokens: 100 } });
+        res.write("data: [DONE]\n\n"); res.end();
+        return;
+      }
       if (/write to a file please/.test(lastUserText)) {
         res.writeHead(200, { "content-type": "text/event-stream" });
         const c = (o) => res.write("data: " + JSON.stringify(o) + "\n\n");
@@ -390,6 +401,21 @@ srv.listen(MOCK_PORT, "127.0.0.1", async () => {
     const atCart = mapMsg.indexOf("cart.js");
     const atBig = mapMsg.indexOf("big.js");
     check("B6 the map ranks the relevant file above the big one", !!mapMsg && atCart !== -1 && atBig !== -1 && atCart < atBig, mapMsg ? "cart at " + atCart + ", big at " + atBig : "(no map in the request)");
+
+    /* B8/B17 — a task list the model writes, the page shows, and the next turn carries */
+    await composer("plan this out");
+    await sleep(200);
+    await click("Send ↵");
+    await sleep(4500);
+    const taskPanel = await value("(() => { const t=document.body.innerText; return JSON.stringify({ goal: /task · ship the map check/.test(t), done: /1\\/2 done/.test(t) }); })()");
+    check("B8 the task list is visible on the page", taskPanel.goal && taskPanel.done, JSON.stringify(taskPanel));
+    await composer("with the task in place");
+    await sleep(200);
+    await click("Send ↵");
+    await sleep(3500);
+    const taskReq = seen[seen.length - 1] || {};
+    const taskSys = String(((taskReq.messages || [])[0] || {}).content || "");
+    check("B8/B17 the task list survives into the next request", /## TASK:/.test(taskSys) && /- \[x\] rank the map/.test(taskSys) && /- \[ \] prove it/.test(taskSys), (taskSys.match(/## TASK:[\s\S]{0,140}/) || ["(no TASK line)"])[0].replace(/\n/g, " | "));
 
     /* A5/B9 — git: the panel on the page, and the branch plus changes in the context */
     const sysB9 = String((((firstCall || {}).messages || [])[0] || {}).content || "");

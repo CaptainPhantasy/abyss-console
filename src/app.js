@@ -148,6 +148,7 @@ Non-negotiables:
   daily: "deepseek_console:daily",
   sessions: "deepseek_console:sessions",
   recipes: "deepseek_console:recipes",
+  task: "deepseek_console:task",
   },
   DEFAULT_SETTINGS = {
     model: "deepseek-flash",
@@ -1166,6 +1167,7 @@ function App() {
     [gitDiff, setGitDiff] = React.useState(null),
     [gitMsg, setGitMsg] = React.useState(""),
     [gitCommitMsg, setGitCommitMsg] = React.useState(""),
+    [task, setTask] = React.useState(null),
     [sessions, setSessions] = React.useState([]),
     [sessionName, setSessionName] = React.useState(""),
     [sessionQuery, setSessionQuery] = React.useState(""),
@@ -1210,7 +1212,7 @@ function App() {
   }, [i.pinned, project]);
   (React.useEffect(() => {
     (async () => {
-      const [h, z, A, F, U, day, savedSessions, savedRecipes] = await Promise.all([
+      const [h, z, A, F, U, day, savedSessions, savedRecipes, savedTask] = await Promise.all([
         storageGet(STORAGE_KEYS.key),
         storageGet(STORAGE_KEYS.settings),
         storageGet(STORAGE_KEYS.doc),
@@ -1219,6 +1221,7 @@ function App() {
         storageGet(STORAGE_KEYS.daily),
         storageGet(STORAGE_KEYS.sessions),
         storageGet(STORAGE_KEYS.recipes),
+        storageGet(STORAGE_KEYS.task),
       ]);
       (h && (r(h), o(h)),
         z &&
@@ -1236,6 +1239,7 @@ function App() {
         day && day.date === todayIndiana() && setDaily(day),
         Array.isArray(savedSessions) && setSessions(savedSessions),
         Array.isArray(savedRecipes) && setRecipes(savedRecipes),
+        savedTask && setTask(savedTask),
         Ce(!0),
         h || t("settings"),
         setTimeout(() => probeHelper(!0), 300));
@@ -1337,6 +1341,11 @@ ${z.text}`,
                 gitStatus.changed.slice(0, 12).map((c2) => c2.path).join(", ") +
                 (gitStatus.changed.length > 12 ? " (+" + (gitStatus.changed.length - 12) + " more)" : ""))
           : "";
+      const taskText =
+        task && (task.goal || (task.steps || []).length)
+          ? "\n\n## TASK: " + (task.goal || "(no goal set)") + "\n" +
+            (task.steps || []).map((s2) => "- [" + (s2.done ? "x" : " ") + "] " + s2.text).join("\n")
+          : "";
       const A = [
           {
             role: "system",
@@ -1344,6 +1353,7 @@ ${z.text}`,
               CHEATSHEET +
               pinnedText +
               gitText +
+              taskText +
               `
 
 ` +
@@ -1547,6 +1557,32 @@ ${z.text}`,
           },
         ];
       }
+      tools = [
+        ...(tools || []),
+        {
+          type: "function",
+          function: {
+            name: "task_update",
+            description:
+              "Keep the task list for multi-turn work. Set the goal and the ordered steps; mark steps done as you go. The list survives every turn and rides in the system message under '## TASK', so you can always read the current goal and what is left.",
+            parameters: {
+              type: "object",
+              properties: {
+                goal: { type: "string", description: "the one-line goal; omit to keep the current one" },
+                steps: {
+                  type: "array",
+                  description: "the full step list in order, each { text, done } — send the whole list each time",
+                  items: {
+                    type: "object",
+                    properties: { text: { type: "string" }, done: { type: "boolean" } },
+                    required: ["text"],
+                  },
+                },
+              },
+            },
+          },
+        },
+      ];
       const forecastNow = estimateSend();
       setForecast({ ...forecastNow, at: new Date().toISOString(), spent: 0 });
       let turnCost = 0;
@@ -1685,6 +1721,25 @@ ${z.text}`,
                   Fe = { status: "error", error: "the helper could not reach the room: " + String(err.message || err) };
                 }
               }
+            } else if (te.function.name === "task_update") {
+              const nextTask = {
+                goal: typeof ne.goal === "string" ? ne.goal.slice(0, 300) : (task && task.goal) || "",
+                steps: Array.isArray(ne.steps)
+                  ? ne.steps
+                      .filter((s2) => s2 && typeof s2.text === "string")
+                      .map((s2) => ({ text: String(s2.text).slice(0, 200), done: !!s2.done }))
+                      .slice(0, 20)
+                  : (task && task.steps) || [],
+                at: new Date().toISOString(),
+              };
+              setTask(nextTask);
+              storageSet(STORAGE_KEYS.task, nextTask);
+              Fe = {
+                status: "executed",
+                result:
+                  "task saved — goal: " + (nextTask.goal || "(none)") + "; " +
+                  nextTask.steps.filter((s2) => s2.done).length + "/" + nextTask.steps.length + " steps done",
+              };
             } else {
               Fe = await globalThis.DCEngine.runGuarded(i.mcpGate, te.function.name, ne, { signal: Qe.current.signal });
             }
@@ -3484,6 +3539,21 @@ ${z.text}`,
                                 jsxRuntime.jsx("button", { style: { ...STYLES.trayX, marginLeft: "auto" }, title: "close the diff", onClick: () => setGitDiff(null), children: "×" }),
                               ] }),
                               jsxRuntime.jsx("pre", { style: { margin: "6px 0 0", maxHeight: 260, overflow: "auto", fontSize: 11.5, color: "var(--foam)", whiteSpace: "pre-wrap" }, children: gitDiff.text }),
+                            ] })
+                          : null,
+                        task && (task.goal || (task.steps || []).length)
+                          ? jsxRuntime.jsxs("div", { style: { ...STYLES.projectBar, marginTop: 8, flexDirection: "column", alignItems: "flex-start", gap: 4 }, children: [
+                              jsxRuntime.jsxs("div", { style: { display: "flex", gap: 8, alignItems: "center", width: "100%" }, children: [
+                                jsxRuntime.jsx("span", { style: { color: "var(--sonar)", fontFamily: "'JetBrains Mono',monospace", fontSize: 11 }, children: "task · " + (task.goal || "(no goal)") }),
+                                jsxRuntime.jsx("span", { style: { color: "var(--kelp)", fontFamily: "'JetBrains Mono',monospace", fontSize: 11 }, children: (task.steps || []).filter((s2) => s2.done).length + "/" + (task.steps || []).length + " done" }),
+                                jsxRuntime.jsx("button", { style: { ...STYLES.trayX, marginLeft: "auto" }, title: "clear the task list", onClick: () => { setTask(null); storageSet(STORAGE_KEYS.task, null); }, children: "×" }),
+                              ] }),
+                              (task.steps || []).map((s2, i2) =>
+                                jsxRuntime.jsxs("div", { style: { display: "flex", gap: 8, alignItems: "center", fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: s2.done ? "var(--kelp)" : "var(--foam)" }, children: [
+                                  jsxRuntime.jsx("button", { style: STYLES.microBtn, title: s2.done ? "mark this step not done" : "mark this step done", onClick: () => { const nextTask = { ...task, steps: task.steps.map((x2, j2) => (j2 === i2 ? { ...x2, done: !x2.done } : x2)) }; setTask(nextTask); storageSet(STORAGE_KEYS.task, nextTask); }, children: s2.done ? "[x]" : "[ ]" }),
+                                  jsxRuntime.jsx("span", { children: s2.text }),
+                                ] }, i2),
+                              ),
                             ] })
                           : null,
                         journal &&

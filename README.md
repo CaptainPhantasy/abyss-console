@@ -191,6 +191,9 @@ This pattern-based scrubber does not inspect image contents or guarantee detecti
 - **sent ▾** — the last five request bodies exactly as they went out (after scrubbing): model,
   message and tool counts, the full JSON, and a copy button each. The answer to "why did it answer
   that" without reading storage by hand.
+- **the task list** — for work that spans turns we keep a plan, not a transcript: the model sets a
+  goal and ordered steps through a `task_update` tool, the page shows them (each step toggles done),
+  and every request carries `## TASK: …` — so the model reads its own plan instead of re-deriving it.
 - **⌘K / Ctrl-K** — a command palette over the things you do most: new chat, sessions, cost
   breakdown, the sent inspector, the change journal, run verify, apply & fix, both compare actions,
   trace, index, settings. Type to filter, Enter runs the first match, Escape closes.
