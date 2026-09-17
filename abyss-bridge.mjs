@@ -1065,6 +1065,111 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  /* ------------------------------------------------------------------- git */
+  /* Read-only facts plus explicit stage and commit; the page asks before the writes. */
+  const gitRootOf = (requested) => {
+    const p2 = safePath(requested || HOME);
+    try {
+      return execFileSync("git", ["-C", p2, "rev-parse", "--show-toplevel"], { encoding: "utf8", timeout: 5000, maxBuffer: 1 << 20 }).trim();
+    } catch {
+      return "";
+    }
+  };
+  const runGit = (repo, args, timeout = 20000) =>
+    execFileSync("git", ["-C", repo, ...args], { encoding: "utf8", timeout, maxBuffer: 8 << 20 });
+
+  if (url.pathname === "/git/status") {
+    const gitRoot = gitRootOf(url.searchParams.get("path"));
+    if (!gitRoot) { json(res, 200, { ok: false, error: "that folder is not inside a git work tree" }); return; }
+    let branch = "";
+    let head = "";
+    try {
+      branch = runGit(gitRoot, ["rev-parse", "--abbrev-ref", "HEAD"], 5000).trim();
+      head = runGit(gitRoot, ["rev-parse", "--short", "HEAD"], 5000).trim();
+    } catch {
+      branch = "(no commits yet)";
+    }
+    let changed = [];
+    try {
+      changed = runGit(gitRoot, ["status", "--porcelain=v1"], 10000)
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => ({ xy: line.slice(0, 2), path: line.slice(3).trim() }));
+    } catch {}
+    json(res, 200, { ok: true, root: gitRoot, branch, head, changed, clean: changed.length === 0 });
+    return;
+  }
+
+  if (url.pathname === "/git/diff") {
+    const gitRoot = gitRootOf(url.searchParams.get("path"));
+    if (!gitRoot) { json(res, 200, { ok: false, error: "that folder is not inside a git work tree" }); return; }
+    const file = url.searchParams.get("file") || "";
+    const staged = url.searchParams.get("staged") === "1";
+    const args = staged ? ["diff", "--cached", "--no-color"] : ["diff", "HEAD", "--no-color"];
+    if (file) args.push("--", file);
+    let text = "";
+    try {
+      text = runGit(gitRoot, args);
+    } catch (err) {
+      text = String(err.stdout || "");
+      if (!text) {
+        /* a repo with no commits yet has no HEAD to diff against */
+        const fallback = staged ? ["diff", "--cached", "--no-color"] : ["diff", "--no-color"];
+        if (file) fallback.push("--", file);
+        try { text = runGit(gitRoot, fallback); } catch (err2) { text = String(err2.stdout || ""); }
+      }
+    }
+    const cut = 200000;
+    const truncated = text.length > cut;
+    json(res, 200, {
+      ok: true,
+      root: gitRoot,
+      file: file || "(everything)",
+      staged,
+      text: truncated ? text.slice(0, cut) + "\n…[diff cut at " + cut + " characters]" : text,
+      truncated,
+    });
+    return;
+  }
+
+  if (url.pathname === "/git/stage" && req.method === "POST") {
+    let body = {};
+    try { body = JSON.parse((await readBody(req)) || "{}"); } catch {}
+    if (body.confirm !== true) { json(res, 403, { error: "staging changes the repo's state — send confirm: true; the page asks first" }); return; }
+    const gitRoot = gitRootOf(body.path);
+    if (!gitRoot) { json(res, 200, { ok: false, error: "that folder is not inside a git work tree" }); return; }
+    const files = Array.isArray(body.files) && body.files.length ? body.files.map(String) : [];
+    try {
+      runGit(gitRoot, files.length ? ["add", "--", ...files] : ["add", "-A"], 30000);
+    } catch (err) {
+      json(res, 200, { ok: false, error: String(err.stderr || err.stdout || err.message || err).slice(0, 300) });
+      return;
+    }
+    logRun("git-stage", (files.length ? files.join(" ") : "-A").slice(0, 120));
+    json(res, 200, { ok: true, root: gitRoot, staged: files.length ? files : ["-A"] });
+    return;
+  }
+
+  if (url.pathname === "/git/commit" && req.method === "POST") {
+    let body = {};
+    try { body = JSON.parse((await readBody(req)) || "{}"); } catch {}
+    if (body.confirm !== true) { json(res, 403, { error: "a commit is a real change — send confirm: true; the page asks first" }); return; }
+    const message = String(body.message || "").trim();
+    if (!message) { json(res, 400, { error: "a commit needs { message }" }); return; }
+    const gitRoot = gitRootOf(body.path);
+    if (!gitRoot) { json(res, 200, { ok: false, error: "that folder is not inside a git work tree" }); return; }
+    try {
+      const out = runGit(gitRoot, ["commit", "-m", message], 60000);
+      let hash = "";
+      try { hash = runGit(gitRoot, ["rev-parse", "--short", "HEAD"], 5000).trim(); } catch {}
+      logRun("git-commit", (hash + " " + message).slice(0, 120));
+      json(res, 200, { ok: true, root: gitRoot, hash, output: out.slice(0, 2000) });
+    } catch (err) {
+      json(res, 200, { ok: false, error: String(err.stderr || err.stdout || err.message || err).slice(0, 400) });
+    }
+    return;
+  }
+
   /* several files at once, for when the model asks for a few by path */
   if (url.pathname === "/fs/many") {
     const pathsParam = url.searchParams.get("paths") || "";
