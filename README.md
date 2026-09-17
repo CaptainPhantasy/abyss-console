@@ -136,8 +136,8 @@ red line explains it and **no request leaves the machine**. The counter is keyed
 resets tomorrow. Set the amount in Settings; `0` means no limit.
 
 Next to it, three routing presets — **cheap & cheerful** (flash, thinking off), **everyday coding**
-(flash, thinking high), **hard reasoning** (v4-pro, thinking high) — and **review with pro**, which
-hands your last question to the big model and asks it to be blunt about what is wrong.
+(flash, thinking high), **hard reasoning** (v4-pro, thinking high) — and **second opinion from pro**,
+which hands your last exchange to the big model and asks it to be blunt about what is wrong.
 
 ## Secrets
 
@@ -151,7 +151,8 @@ the scrubber can be switched off in Settings. What it catches is listed in the u
 
 - **Forecast against the bill** — before a turn the page says what it expects to spend and what it
   assumed ("2,698 tokens in, assuming 0% cache hits, and 4,000 tokens out"); after the turn it
-  prints the actual and the difference. The hit ratio comes from the session's own cache record.
+  prints the actual and the difference. The hit ratio comes from the session's own cache record;
+  a session with no history says "cold session — worst case" instead of pretending precision.
 - **compare flash vs pro** — the same question to both models at once, side by side, each with its
   own price and token count, and a button to keep whichever answer you prefer.
 - **Pinned context** — pin a file and its text is prepended to the system message, which is the

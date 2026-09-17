@@ -143,7 +143,7 @@ srv.listen(8899, "127.0.0.1", async () => {
     await sleep(900);
     await ab("eval", `localStorage.setItem('deepseek_console:apikey', JSON.stringify('sk-stand-in'));
       localStorage.setItem('deepseek_console:settings', JSON.stringify({ model:'deepseek-flash', thinking:false, effort:'high', maxTokens:8000, mcpOn:false, mcpUrl:'', mcpGate:'PLAN', mcpToken:'', helperToken:${JSON.stringify(HTOKEN)}, redact:true, budgetUsd:0, panelsOpen:true, verifyCmds:{${JSON.stringify(LAB)}:"node check.js\\necho after-check"}, pinned:[{id:'p1', name:'guardrails.md', text:'house rule: never log secrets — password=hunter2hunter2', tokens:12}] }));
-      localStorage.removeItem('deepseek_console:daily'); localStorage.removeItem('deepseek_console:sessions'); location.reload(); 'x'`);
+      localStorage.removeItem('deepseek_console:daily'); localStorage.removeItem('deepseek_console:sessions'); localStorage.removeItem('deepseek_console:totals'); location.reload(); 'x'`);
     await sleep(2200);
 
     /* F7 — one exchange, then the forecast is compared with the bill */
@@ -151,8 +151,8 @@ srv.listen(8899, "127.0.0.1", async () => {
     await sleep(200);
     await click("Send ↵");
     await sleep(4000);
-    const costLine = await read("(() => { const m=document.body.innerText.match(/Cost of that turn[^\\n]{0,120}/); return m ? m[0] : ''; })()");
-    check("F7 forecast and actual on the record", /forecast \$0\./.test(costLine) && /actual \$0\./.test(costLine) && /assuming \d+% cache hits/.test(costLine), costLine.slice(0, 110));
+    const costLine = await read("(() => { const m=document.body.innerText.match(/Cost of that turn[^\\n]{0,260}/); return m ? m[0] : ''; })()");
+    check("F7 forecast and actual on the record", /forecast \$0\./.test(costLine) && /actual \$0\./.test(costLine) && /assuming \d+% cache hits/.test(costLine) && /cold session/.test(costLine), costLine.slice(0, 150));
 
     /* F6 — tags, disk, and the matching line */
     await typeInto("name this session", "cart session");
@@ -169,6 +169,16 @@ srv.listen(8899, "127.0.0.1", async () => {
     await sleep(600);
     const row = await read("(() => { const b=[...document.querySelectorAll('button')].filter(x=>x.title==='open this session')[0]; return b ? b.innerText.replace(/\\n/g,' ') : ''; })()");
     check("F6 search shows the line it matched", /#cart #money/.test(row) && /what is the cart total/.test(row), row.slice(0, 112));
+    /* A19 — delete takes two presses, and only the second one removes */
+    const before19 = ((await (await hfetch("http://127.0.0.1:8787/lib")).json()).sessions || []).length;
+    await ab("eval", "(() => { const b=[...document.querySelectorAll('button')].find((x)=>(x.title||'').startsWith('delete')); if(!b) return 'no'; b.click(); return 'ok'; })()");
+    await sleep(600);
+    const sureShown = await value("(() => /sure\\?/.test(document.body.innerText))()");
+    const afterOne = ((await (await hfetch("http://127.0.0.1:8787/lib")).json()).sessions || []).length;
+    await ab("eval", "(() => { const b=[...document.querySelectorAll('button')].find((x)=>x.textContent.trim()==='sure?'); if(!b) return 'no'; b.click(); return 'ok'; })()");
+    await sleep(900);
+    const afterTwo = ((await (await hfetch("http://127.0.0.1:8787/lib")).json()).sessions || []).length;
+    check("A19 delete takes two presses and only then removes", sureShown === true && afterOne === before19 && afterTwo === before19 - 1, "before " + before19 + ", after one " + afterOne + ", after two " + afterTwo);
 
     /* F8 — both models, both bills */
     await composer("one question, two answers");
@@ -177,6 +187,8 @@ srv.listen(8899, "127.0.0.1", async () => {
     await sleep(4500);
     const cmpObj = await value("(() => { const t=document.body.innerText; return JSON.stringify({ both: /FLASH says this/.test(t) && /PRO says this/.test(t), money: (t.match(/\\$0\\.0000\\d\\d/g)||[]).length }); })()");
     check("F8 both answers side by side with a price each", cmpObj.both && cmpObj.money >= 2, "price figures on screen: " + cmpObj.money + ", models asked: " + [...new Set(seen.map((b) => b.model))].join("+"));
+    const a15 = await value("(() => { const ts=[...document.querySelectorAll('button')].map((x)=>x.title||''); return JSON.stringify({ cmp: ts.some((x)=>/flash and to pro side by side/.test(x)), rev: ts.some((x)=>/be blunt/.test(x)), label: /second opinion from pro/.test(document.body.innerText) }); })()");
+    check("A15 the two compare actions explain themselves", a15.cmp && a15.rev && a15.label, JSON.stringify(a15));
 
     /* F9 — pinned context in the cached prefix, and the meter */
     const before = seen.length;

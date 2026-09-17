@@ -1958,6 +1958,8 @@ function App() {
     [triage, setTriage] = React.useState(null),
     [traceOpen, setTraceOpen] = React.useState(false),
     [journalMsg, setJournalMsg] = React.useState(""),
+    [confirmKill, setConfirmKill] = React.useState(""),
+    [confirmUnpin, setConfirmUnpin] = React.useState(""),
     [sessions, setSessions] = React.useState([]),
     [sessionName, setSessionName] = React.useState(""),
     [sessionQuery, setSessionQuery] = React.useState(""),
@@ -2505,7 +2507,7 @@ ${z.text}`,
                 display: !0,
                 content:
                 "**Cost of that turn** — forecast " + fmtCost(prev.usd) + " (" + prev.total.toLocaleString() + " tokens in, assuming " +
-                Math.round((prev.hitRatio || 0) * 100) + "% cache hits, and " + Math.min(Number(i.maxTokens) || 4000, 4000).toLocaleString() + " tokens out), actual " + fmtCost(turnCost) + " — " +
+                Math.round((prev.hitRatio || 0) * 100) + "% cache hits" + (prev.cold ? " (cold session — worst case; it improves as the cache warms)" : " (your session's own rate)") + ", and " + Math.min(Number(i.maxTokens) || 4000, 4000).toLocaleString() + " tokens out), actual " + fmtCost(turnCost) + " — " +
                 (diff >= 0 ? "+" : "") + diff.toFixed(0) + "% against the forecast. Model " + i.model + (i.thinking ? " · thinking " + i.effort : " · thinking off") + (prev.peak ? " · peak pricing" : "") + ".",
               },
             ]);
@@ -3095,8 +3097,10 @@ ${z.text}`,
       const total = system + history + draft + attached + pictures;
       const price = PRICES[i.model] || PRICES["deepseek-flash"];
       const peak = peakInfo(new Date()).inWindow;
-      const usd = (total / 1e6) * price.miss * (peak ? 2 : 1);
-      return { system, history, draft, attached: attached + pictures, total, usd, peak };
+      const cold = (y.hit || 0) + (y.miss || 0) === 0;
+      const hitRatio = cold ? 0 : (y.hit || 0) / ((y.hit || 0) + (y.miss || 0));
+      const usd = ((total * (1 - hitRatio) * price.miss + total * hitRatio * price.hit) / 1e6) * (peak ? 2 : 1);
+      return { system, history, draft, attached: attached + pictures, total, usd, peak, hitRatio, cold };
     },
     /* ---- fork: keep where you are, then carry on differently ---------------- */
     forkFrom = async (index) => {
@@ -3955,7 +3959,20 @@ ${z.text}`,
                                                 }),
                                               ],
                                             }),
-                                            jsxRuntime.jsx("button", { style: STYLES.trayX, title: "delete", onClick: () => deleteSession(sn.id), children: "×" }),
+                                            jsxRuntime.jsx("button", {
+                                              style: STYLES.trayX,
+                                              title: confirmKill === sn.id ? "click again to delete for good" : "delete (asks once first — the copy on disk goes too)",
+                                              onClick: () => {
+                                                if (confirmKill === sn.id) {
+                                                  setConfirmKill("");
+                                                  deleteSession(sn.id);
+                                                } else {
+                                                  setConfirmKill(sn.id);
+                                                  setTimeout(() => setConfirmKill((c2) => (c2 === sn.id ? "" : c2)), 4000);
+                                                }
+                                              },
+                                              children: confirmKill === sn.id ? "sure?" : "×",
+                                            }),
                                           ],
                                         },
                                         sn.id,
@@ -3997,7 +4014,7 @@ ${z.text}`,
                         jsxRuntime.jsx("button", {
                           style: STYLES.ghostBtn,
                           disabled: compareBusy,
-                          title: "send the same question to flash and to pro, side by side, with both bills",
+                          title: "send the same question to flash and to pro side by side, each with its own bill — use it when you have not asked yet",
                           onClick: compareModels,
                           children: compareBusy ? "comparing…" : "compare flash vs pro",
                         }),
@@ -4016,9 +4033,9 @@ ${z.text}`,
                               }),
                               jsxRuntime.jsx("button", {
                                 style: STYLES.ghostBtn,
-                                title: "hand the last question to the big model and ask for a blunt review",
+                                title: "hand the last exchange to the pro model and ask it to be blunt about what is wrong — use it when you already have an answer",
                                 onClick: reviewWithPro,
-                                children: "review with pro",
+                                children: "second opinion from pro",
                               }),
                             ] }),
                           ],
@@ -4031,7 +4048,20 @@ ${z.text}`,
                                 (i.pinned || []).map((p2) =>
                                   jsxRuntime.jsxs("span", { style: { display: "flex", gap: 6, alignItems: "center", ...STYLES.chip, width: "auto", padding: "3px 10px", fontSize: 11 }, children: [
                                     p2.name + " · " + (p2.tokens || 0).toLocaleString() + " tok",
-                                    jsxRuntime.jsx("button", { style: STYLES.trayX, title: "unpin", onClick: () => unpin(p2.id), children: "×" }),
+                                    jsxRuntime.jsx("button", {
+                                      style: STYLES.trayX,
+                                      title: confirmUnpin === p2.id ? "click again to unpin" : "unpin (asks once first)",
+                                      onClick: () => {
+                                        if (confirmUnpin === p2.id) {
+                                          setConfirmUnpin("");
+                                          unpin(p2.id);
+                                        } else {
+                                          setConfirmUnpin(p2.id);
+                                          setTimeout(() => setConfirmUnpin((c2) => (c2 === p2.id ? "" : c2)), 4000);
+                                        }
+                                      },
+                                      children: confirmUnpin === p2.id ? "sure?" : "×",
+                                    }),
                                   ] }, p2.id),
                                 ),
                                 jsxRuntime.jsxs("span", { style: { marginLeft: "auto", color: "var(--kelp)", fontFamily: "'JetBrains Mono',monospace", whiteSpace: "nowrap" }, children: ["cached after the first send · session hit-rate ", $l + "%"] }),
