@@ -841,11 +841,18 @@ const jsxRuntime = d, React = W, ReactDOM = Zc, createRoot = Tc;
    the token into Settings. One wrapper here means no call site can forget the header. */
 (() => {
   const origFetch = globalThis.fetch;
+  const fromStorage = () => {
+    try {
+      return (JSON.parse(localStorage.getItem("deepseek_console:settings") || "{}") || {}).helperToken || "";
+    } catch {
+      return "";
+    }
+  };
   globalThis.fetch = (input, init = {}) => {
     const url = typeof input === "string" ? input : (input && input.url) || "";
     if (url.startsWith(HELPER_URL)) {
       const headers = new Headers((init && init.headers) || {});
-      const token = globalThis.__ABYSS_TOKEN || "";
+      const token = globalThis.__ABYSS_TOKEN || fromStorage();
       if (token) headers.set("x-abyss-token", token);
       return origFetch(input, { ...init, headers });
     }
@@ -973,6 +980,7 @@ Non-negotiables:
   projectBudgets: {},
   pinned: [],
     mcpToken: "",
+    helperToken: "",
   };
 async function storageGet(e) {
   try {
@@ -1129,10 +1137,22 @@ async function callDeepSeek({
   signal: s,
   onDelta: u,
   tools: d,
+  scrub: sc,
 }) {
+  /* The one choke point: whatever the call sites built — history, pinned text, tool
+     results, attachments — nothing secret leaves the machine from here. */
+  const RG = globalThis.AbyRedact;
+  const fix = (q) => (sc === false || !RG ? String(q == null ? "" : q) : RG.redact(String(q)).text);
+  const fixContent = (q) =>
+    typeof q === "string"
+      ? fix(q)
+      : Array.isArray(q)
+        ? q.map((p2) => (p2 && p2.type === "text" && typeof p2.text === "string" ? { ...p2, text: fix(p2.text) } : p2))
+        : q;
+  const live = sc === false || !RG ? n : n.map((mm) => ({ ...mm, content: fixContent(mm.content) }));
   const c = {
     model: t,
-    messages: n,
+    messages: live,
     stream: !0,
     stream_options: { include_usage: !0 },
     max_tokens: o,
@@ -1249,12 +1269,20 @@ function CodeBlock({ lang: e, code: t, apiKey: key, model: chosenModel }) {
     setBusy(true);
     setErr("");
     try {
+      const off = (() => {
+        try {
+          return JSON.parse(localStorage.getItem("deepseek_console:settings") || "{}").redact === false;
+        } catch {
+          return false;
+        }
+      })();
+      const clean = off || !globalThis.AbyRedact ? t : globalThis.AbyRedact.redact(String(t)).text;
       const res = await fetch(API_BASE + "/beta/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: "Bearer " + key },
         body: JSON.stringify({
           model: chosenModel && chosenModel.indexOf("pro") === -1 ? chosenModel : "deepseek-flash",
-          prompt: t,
+          prompt: clean,
           suffix: "",
           max_tokens: 220,
           temperature: 0.2,
@@ -2228,6 +2256,7 @@ ${z.text}`,
         for (let step = 0; step < 8; step++) {
           const F = await callDeepSeek({
               apiKey: n,
+              scrub: i.redact !== false,
               model: i.model,
               messages: H,
               thinking: i.thinking,
@@ -2922,7 +2951,7 @@ ${z.text}`,
       const run = async (model) => {
         try {
           const r = await callDeepSeek({
-            apiKey: n, model, messages: [{ role: "system", content: CHEATSHEET }, { role: "user", content: ask }],
+            apiKey: n, scrub: i.redact !== false, model, messages: [{ role: "system", content: CHEATSHEET }, { role: "user", content: ask }],
             thinking: false, temperature: 1.0, maxTokens: Math.min(Number(i.maxTokens) || 4000, 4000), onDelta: () => {},
           });
           const cost = r.usage ? await recordUsage(model, r.usage) : null;
@@ -4689,6 +4718,12 @@ ${z.text}`,
                               children: "use as the MCP endpoint",
                             }),
                           ],
+                        }),
+                        jsxRuntime.jsx("input", {
+                          style: { ...STYLES.input, marginTop: 8 },
+                          placeholder: "helper token — cat ~/.abyss-console/token (needed only for a file:// copy of this page)",
+                          value: i.helperToken || "",
+                          onChange: (h) => K({ helperToken: h.target.value }),
                         }),
                         helperMsg
                           ? jsxRuntime.jsx("div", {

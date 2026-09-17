@@ -128,8 +128,9 @@ hands your last question to the big model and asks it to be blunt about what is 
 
 ## Secrets
 
-Every message passes through the scrubber first: `sk-…` keys, AWS/GitHub/Slack/Google tokens,
-private key blocks, passwords in connection strings, and anything written as `api_key=…`,
+Everything that leaves the machine is scrubbed at the moment the request is assembled — the draft,
+attachments, pinned text and tool results alike — catching `sk-…` keys, AWS/GitHub/Slack/Google
+tokens, private key blocks, passwords in connection strings, and anything written as `api_key=…`,
 `password=…`, `token: …` or `Authorization: Bearer …`. The count appears above the composer, and
 the scrubber can be switched off in Settings. What it catches is listed in the unit test.
 

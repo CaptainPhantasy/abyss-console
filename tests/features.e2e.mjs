@@ -8,7 +8,18 @@
 import { createServer } from "node:http";
 import { readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { spawn } from "node:child_process";
+import { homedir } from "node:os";
 const PAGE = readFileSync(new URL("../dist/test-page.html", import.meta.url), "utf8");
+/* the helper's token, when the hardened helper (A1) is the one running */
+const HTOKEN = (() => {
+  try {
+    return readFileSync(homedir() + "/.abyss-console/token", "utf8").trim();
+  } catch {
+    return "";
+  }
+})();
+const hfetch = (url, opts = {}) =>
+  fetch(url, { ...opts, headers: { ...(opts.headers || {}), ...(HTOKEN ? { "x-abyss-token": HTOKEN } : {}) } });
 const LAB = "/tmp/final-lab2";
 rmSync(LAB, { recursive: true, force: true });
 mkdirSync(LAB + "/src", { recursive: true });
@@ -85,7 +96,7 @@ srv.listen(8899, "127.0.0.1", async () => {
     await ab("open", "http://127.0.0.1:8899/");
     await sleep(900);
     await ab("eval", `localStorage.setItem('deepseek_console:apikey', JSON.stringify('sk-stand-in'));
-      localStorage.setItem('deepseek_console:settings', JSON.stringify({ model:'deepseek-flash', thinking:false, effort:'high', maxTokens:8000, mcpOn:false, mcpUrl:'', mcpGate:'PLAN', mcpToken:'', redact:true, budgetUsd:0, panelsOpen:true, pinned:[{id:'p1', name:'guardrails.md', text:'house rule: never log secrets', tokens:9}] }));
+      localStorage.setItem('deepseek_console:settings', JSON.stringify({ model:'deepseek-flash', thinking:false, effort:'high', maxTokens:8000, mcpOn:false, mcpUrl:'', mcpGate:'PLAN', mcpToken:'', helperToken:${JSON.stringify(HTOKEN)}, redact:true, budgetUsd:0, panelsOpen:true, pinned:[{id:'p1', name:'guardrails.md', text:'house rule: never log secrets — password=hunter2hunter2', tokens:12}] }));
       localStorage.removeItem('deepseek_console:daily'); localStorage.removeItem('deepseek_console:sessions'); location.reload(); 'x'`);
     await sleep(2200);
 
@@ -102,7 +113,7 @@ srv.listen(8899, "127.0.0.1", async () => {
     await typeInto("tags, comma, separated", "cart, money");
     await click("^save$");
     await sleep(1800);
-    const disk = await (await fetch("http://127.0.0.1:8787/lib")).json();
+    const disk = await (await hfetch("http://127.0.0.1:8787/lib")).json();
     check("F6 session and tags land on disk", (disk.sessions || []).some((x) => x.name === "cart session" && (x.tags || []).includes("money")), (disk.sessions || []).length + " sessions on disk");
     await click("^new$");
     await sleep(400);
@@ -129,6 +140,7 @@ srv.listen(8899, "127.0.0.1", async () => {
     await sleep(3500);
     const sys = (seen[seen.length - 1] || {}).messages?.[0]?.content || "";
     check("F9 the pin rides in the system message", sys.includes("PINNED: guardrails.md") && sys.includes("never log secrets"), (seen.length - before) + " call(s), system " + sys.length + " chars");
+    check("A2 the pinned secret is scrubbed before it leaves", !sys.includes("hunter2hunter2") && /REDACTED/.test(sys), /REDACTED/.test(sys) ? "redaction marker present" : "redaction marker MISSING");
     const meter = await value("(() => /cached after the first send · session hit-rate/.test(document.body.innerText) ? 'shown' : 'missing')()");
     check("F9 the cache meter sits next to the pins", meter === "shown", meter);
 
@@ -167,7 +179,7 @@ srv.listen(8899, "127.0.0.1", async () => {
     await typeInto("the instruction text", "Short sentences. Name the file before each block.");
     await click("^keep$");
     await sleep(900);
-    const kept = await (await fetch("http://127.0.0.1:8787/lib")).json();
+    const kept = await (await hfetch("http://127.0.0.1:8787/lib")).json();
     check("Feature: recipes are kept, on disk too", (kept.recipes || []).some((x) => (x.tags || []).length >= 0 && x.text.includes("Short sentences")), (kept.recipes || []).length + " recipes on disk");
     await ab("eval", "(() => { const b=[...document.querySelectorAll('button')].find(x=>x.title==='put it in the composer'); if(!b) return 'no'; b.click(); return 'ok'; })()");
     await sleep(400);
