@@ -50,8 +50,11 @@ const srv = createServer((req, res) => {
     req.on("end", () => {
       const b = JSON.parse(Buffer.concat(ch).toString() || "{}");
       seen.push(b);
-      const roles = (b.messages || []).map((x) => x.role);
-      if (/search the project for exports/.test(JSON.stringify(b.messages)) && !roles.includes("tool")) {
+      const msgs = b.messages || [];
+      const roles = msgs.map((x) => x.role);
+      const lastUser = [...msgs].reverse().find((x) => x.role === "user");
+      const lastUserText = String((lastUser && lastUser.content) || "");
+      if (/search the project for exports/.test(lastUserText) && !roles.includes("tool")) {
         res.writeHead(200, { "content-type": "text/event-stream" });
         const c = (o) => res.write("data: " + JSON.stringify(o) + "\n\n");
         c({ choices: [{ delta: { tool_calls: [
@@ -63,7 +66,16 @@ const srv = createServer((req, res) => {
         res.write("data: [DONE]\n\n"); res.end();
         return;
       }
-      const text = /finish this for me/.test(JSON.stringify(b.messages))
+      if (/write to a file please/.test(lastUserText)) {
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        const c = (o) => res.write("data: " + JSON.stringify(o) + "\n\n");
+        c({ choices: [{ delta: { content: "Here it is:\n\n**cart.js**\n```js\nexport const sum = () => 1;\n```\n" }, finish_reason: null }] });
+        c({ choices: [{ delta: {}, finish_reason: "stop" }] });
+        c({ choices: [], usage: { prompt_tokens: 1000, completion_tokens: 40, prompt_cache_hit_tokens: 900, prompt_cache_miss_tokens: 100 } });
+        res.write("data: [DONE]\n\n"); res.end();
+        return;
+      }
+      const text = /finish this for me/.test(lastUserText)
         ? "Sure:\n\n```js\nfunction count(items) {\n```\n"
         : b.model === "deepseek-v4-pro" ? "PRO says this" : "FLASH says this";
       res.writeHead(200, { "content-type": "text/event-stream" });
@@ -173,6 +185,12 @@ srv.listen(MOCK_PORT, "127.0.0.1", async () => {
     const sys = (seen[seen.length - 1] || {}).messages?.[0]?.content || "";
     check("F9 the pin rides in the system message", sys.includes("PINNED: guardrails.md") && sys.includes("never log secrets"), (seen.length - before) + " call(s), system " + sys.length + " chars");
     check("A2 the pinned secret is scrubbed before it leaves", !sys.includes("hunter2hunter2") && /REDACTED/.test(sys), /REDACTED/.test(sys) ? "redaction marker present" : "redaction marker MISSING");
+    check("A23 the build contract teaches the write-card format", sys.includes("### file: <path>"), sys.includes("### file:") ? "taught" : "NOT taught");
+    check(
+      "A22 the spend footer never rides into a request",
+      (((seen[seen.length - 1] || {}).messages) || []).every((x) => !/^\*\*Cost of that turn\*\*/.test(String(x.content || ""))),
+      "messages in the request: " + ((((seen[seen.length - 1] || {}).messages) || []).length),
+    );
     const meter = await value("(() => /cached after the first send · session hit-rate/.test(document.body.innerText) ? 'shown' : 'missing')()");
     check("F9 the cache meter sits next to the pins", meter === "shown", meter);
 
@@ -208,7 +226,17 @@ srv.listen(MOCK_PORT, "127.0.0.1", async () => {
     check("B2 search_project returns file:line hits", /checkout\.js:1/.test(toolTexts) && /cart\.js:1/.test(toolTexts), (toolTexts.match(/hits for[^\n]*/) || ["(no search result)"])[0]);
     check("B3 find_references names where a symbol is used", /references to "total"/.test(toolTexts) && /checkout\.js:1/.test(toolTexts), (toolTexts.match(/references to[^\n]*/) || ["(no references result)"])[0]);
 
+    /* A23 — a bold-filename reply still gets the write card */
+    await composer("write to a file please");
+    await sleep(200);
+    await click("Send ↵");
+    await sleep(4000);
+    const wcard = await value("(() => { const t=document.body.innerText; return JSON.stringify({ card: /proposes writing 1 file/.test(t), name: /cart\\.js/.test(t) }); })()");
+    check("A23 the write card renders for the taught format", wcard.card && wcard.name, JSON.stringify(wcard));
+
     /* a code block can be finished by the cheap model (fill-in-the-middle) */
+    await click("^new$");
+    await sleep(600);
     await composer("finish this for me");
     await sleep(200);
     await click("Send ↵");
@@ -216,7 +244,7 @@ srv.listen(MOCK_PORT, "127.0.0.1", async () => {
     await click("finish it");
     await sleep(2500);
     const fim = await value("(() => { const t=document.body.innerText; return JSON.stringify({ shown: /THE MODEL CONTINUED IT WITH/.test(t), added: /return items\\.length/.test(t) }); })()");
-    check("Feature: fill-in-the-middle finishes a code block", fim.shown && fim.added && seenFim.length === 1 && /function count/.test(seenFim[0].prompt), "asked " + seenFim.length + " time(s), model " + (seenFim[0] || {}).model);
+    check("Feature: fill-in-the-middle finishes a code block", fim.shown && fim.added && seenFim.length === 1 && /function count/.test(seenFim[0].prompt), "asked " + seenFim.length + " time(s), model " + (seenFim[0] || {}).model + ", shown " + fim.shown + ", added " + fim.added + ", prompt " + String((seenFim[0] || {}).prompt || "").slice(0, 60).replace(/\n/g, "\\n"));
 
     /* a recipe is kept and put back in the composer */
     await ab("eval", "document.querySelectorAll('nav button')[3].click(); 'settings'");

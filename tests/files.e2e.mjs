@@ -13,35 +13,42 @@ import { tmpdir } from "node:os";
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
 const PORT = 8793;
+const AUTH = "/tmp/abyss-files-e2e-token";
 const LAB = join(tmpdir(), "abyss-files-test");
 
 let child = null;
+let token = "";
 const at = (p) => `http://127.0.0.1:${PORT}${p}`;
+const hdr = () => (token ? { "x-abyss-token": token } : {});
 const post = async (p, body) => {
   const res = await fetch(at(p), {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...hdr() },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(120000),
   });
   return { status: res.status, body: await res.json().catch(() => null) };
 };
 const get = async (p) => {
-  const res = await fetch(at(p), { signal: AbortSignal.timeout(60000) });
+  const res = await fetch(at(p), { headers: hdr(), signal: AbortSignal.timeout(60000) });
   return { status: res.status, body: await res.json().catch(() => null) };
 };
 
 before(async () => {
   mkdirSync(LAB, { recursive: true });
-  child = spawn(process.execPath, [join(root, "abyss-bridge.mjs"), "--port", String(PORT), "--page", join(root, "dist/deepseek-api-console.html")], { stdio: ["ignore", "pipe", "pipe"] });
+  child = spawn(process.execPath, [join(root, "abyss-bridge.mjs"), "--port", String(PORT), "--page", join(root, "dist/deepseek-api-console.html")], {
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, ABYSS_TOKEN_FILE: AUTH },
+  });
   const up = Date.now() + 15000;
   for (;;) {
     try {
-      if ((await fetch(at("/health"), { signal: AbortSignal.timeout(3000) })).ok) return;
+      if ((await fetch(at("/health"), { signal: AbortSignal.timeout(3000) })).ok) break;
     } catch {}
     if (Date.now() > up) throw new Error("the helper did not start");
     await new Promise((r) => setTimeout(r, 300));
   }
+  token = readFileSync(AUTH, "utf8").trim();
 });
 
 after(() => {

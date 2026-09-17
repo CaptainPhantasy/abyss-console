@@ -943,7 +943,7 @@ model_not_found => pre-July names retired. deepseek-v4-flash / deepseek-v4-flash
   MCP_CONTRACT_TEXT = `You are the assistant inside a DeepSeek API console. You are a DeepSeek platform specialist and builder.
 Non-negotiables:
 - You are an expert on everything in the DeepSeek cheat sheet above; cite its facts (prices, limits, rules) precisely and never invent numbers.
-- When asked to BUILD something (an app, script, page, agent, config, doc), deliver the COMPLETE artifact in fenced code blocks with the correct language tag — full implementation, zero placeholders, zero "..." elisions. Multiple files = multiple fenced blocks, each preceded by a bold filename line.
+- When asked to BUILD something (an app, script, page, agent, config, doc), deliver the COMPLETE artifact in fenced code blocks with the correct language tag — full implementation, zero placeholders, zero "..." elisions. Multiple files = multiple fenced blocks, each preceded by its own line \`### file: <path>\`.
 - Default all designs and generated code to the DeepSeek API (deepseek-flash unless the task genuinely needs v4-pro), applying the cheat sheet: static-prefix prompt ordering for cache hits, correct thinking/streaming/tool-round-trip handling, and cost math per million tokens.
 - Speak plainly: explain any technical term in the same sentence you use it. Lead with the outcome, then the detail.
 - If a fact could have drifted since the sheet's verification date, say so and recommend the Docs tab's live refresh.`,
@@ -1612,9 +1612,14 @@ function IdeaUnitTable({ unit }) {
    Everything here is a proposal until the button is pressed. */
 function fileBlocks(text) {
   const out = [];
-  const re = /(?:^|\n)#{2,4}\s*file:\s*([^\n`]+)\n+```[a-zA-Z0-9_-]*\n([\s\S]*?)```/g;
+  const re = /(?:^|\n)(?:#{2,4}\s*file:\s*([^\n`]+)|\*\*([^\n`*]+)\*\*)\n+```[a-zA-Z0-9_-]*\n([\s\S]*?)```/g;
   let m;
-  while ((m = re.exec(String(text || "")))) out.push({ path: m[1].trim(), code: m[2] });
+  while ((m = re.exec(String(text || "")))) {
+    const bold = m[2] ? m[2].trim() : "";
+    if (bold && !/^[\w./-]+\.\w+$/.test(bold)) continue; /* a bold line only counts when it looks like a filename */
+    const path = (m[1] || bold).trim();
+    if (path) out.push({ path, code: m[3] });
+  }
   return out;
 }
 
@@ -2075,7 +2080,7 @@ ${z.text}`,
           },
         ],
         F = h
-          .filter((U) => !U.error)
+          .filter((U) => !U.error && !U.display && !/^\*\*Cost of that turn\*\*/.test(String(U.content || "")))
           .flatMap((U) =>
             U.role === "tool"
               ? [{ role: "tool", tool_call_id: U.toolCallId, content: U.content }]
@@ -2452,6 +2457,7 @@ ${z.text}`,
               ...F2,
               {
                 role: "assistant",
+                display: !0,
                 content:
                 "**Cost of that turn** — forecast " + fmtCost(prev.usd) + " (" + prev.total.toLocaleString() + " tokens in, assuming " +
                 Math.round((prev.hitRatio || 0) * 100) + "% cache hits, and " + Math.min(Number(i.maxTokens) || 4000, 4000).toLocaleString() + " tokens out), actual " + fmtCost(turnCost) + " — " +
@@ -3356,7 +3362,7 @@ ${z.text}`,
                 }),
               e === "chat" &&
                 (() => {
-                  const last = [...m].reverse().find((x) => x.role === "assistant" && !x.error && x.content);
+                  const last = [...m].reverse().find((x) => x.role === "assistant" && !x.error && x.content && !x.display && !/^\*\*Cost of that turn\*\*/.test(String(x.content)));
                   const blocks = last ? fileBlocks(last.content) : [];
                   const patch = last ? findPatch(last.content) : null;
                   if (patch) {
