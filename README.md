@@ -12,7 +12,10 @@ MCP engine, the DeepSeek chat, the cost meter and the daily-idea button.
 The page alone does chat and daily ideas. The helper adds what a web page cannot do:
 reach your MCP room (the room refuses calls from a browser), read files in bulk, and run
 commands you approve. It onboards into the room as `abyss-webapp` and keeps its own onboarding token
-under `~/.local/share/` (override with `ROOM_TOKEN_FILE`).
+under `~/.local/share/` (override with `ROOM_TOKEN_FILE`). Closing the tab asks the helper to stop
+(a `pagehide` beacon, only from a page the helper itself served); macOS starts it again on the next
+visit. The room link is dropped after about 75 seconds of quiet and reconnects on the next call —
+that pause is the reconnect, not a hang.
 
 Routes: `/` the page · `/health` · `/room/status` · `/room/servers` · `/room/tools?q=` ·
 `/room/call` · `/mcp` (a plain MCP endpoint, so the page's gate and approval system works) ·
@@ -122,7 +125,8 @@ and the exit code land in the chat as a message, which is what the model needs t
 **apply & fix** does the whole round-trip in one press: it applies what the last reply proposed
 (write blocks or a unified diff — every write is journaled and undoable), runs the command, hands a
 failure back to the model with the output, and repeats — up to three rounds, with a per-round log
-in the chat and a **stop** button that aborts the round in flight.
+in the chat and a **stop** button that aborts the round in flight. The verify box takes one command
+per line; the loop runs them in order, reports each one, and stops at the first failure.
 
 ## The cost governor and routing
 

@@ -860,6 +860,17 @@ const jsxRuntime = d, React = W, ReactDOM = Zc, createRoot = Tc;
   };
 })();
 
+/* Closing the tab asks the helper to stop — only when the helper served this page (it put the
+   token in). launchd starts it again on the next visit, so nothing is left running for you. */
+if (globalThis.addEventListener) {
+  globalThis.addEventListener("pagehide", () => {
+    if (!globalThis.__ABYSS_TOKEN) return;
+    try {
+      fetch(HELPER_URL + "/quit", { method: "POST", keepalive: true });
+    } catch {}
+  });
+}
+
 const API_BASE = "https://api.deepseek.com",
   HELPER_URL = "http://127.0.0.1:8787",
   PRICES = {
@@ -3012,36 +3023,46 @@ ${z.text}`,
             logLine("fix round " + round + ": nothing new to apply — running the command as it is");
           }
           if (loopCancel.current) break;
-          /* 2) run the project's command */
+          /* 2) run the project's commands, one line at a time; stop at the first failure */
           setRunBusy(!0);
-          const r = await (
-            await fetch(HELPER_URL + "/run", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ cmd, cwd: project ? project.root : undefined, confirm: true, timeoutMs: 300000 }),
-            })
-          ).json();
+          const cmds = String(cmd || "").split("\n").map((s2) => s2.trim()).filter(Boolean);
+          let r = { ok: true, code: 0, ms: 0, stdout: "", stderr: "" };
+          let failedAt = "";
+          for (const one of cmds) {
+            r = await (
+              await fetch(HELPER_URL + "/run", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ cmd: one, cwd: project ? project.root : undefined, confirm: true, timeoutMs: 300000 }),
+              })
+            ).json();
+            setLastRun({ ...r, command: one });
+            logLine("fix round " + round + ": `" + one + "` → exit " + r.code + " in " + (r.ms / 1000).toFixed(1) + "s");
+            if (!r.ok) {
+              failedAt = one;
+              break;
+            }
+          }
           setRunBusy(!1);
-          setLastRun({ ...r, command: cmd });
           if (r.ok) {
-            logLine("fix round " + round + ": `" + cmd + "` → exit 0 in " + (r.ms / 1000).toFixed(1) + "s — green; stopping after " + round + " round(s)");
+            logLine("fix round " + round + ": all " + cmds.length + " command(s) green — stopping after " + round + " round(s)");
             done = true;
             break;
           }
           const tail = ((r.stdout || "") + (r.stderr || "")).slice(-6000);
           if (round >= max) {
-            logLine("fix round " + round + ": `" + cmd + "` → exit " + r.code + " — round cap reached (" + max + "); stopping with the failure below");
+            logLine("fix round " + round + ": round cap reached (" + max + "); stopping with the failure below");
             break;
           }
-          logLine("fix round " + round + ": `" + cmd + "` → exit " + r.code + " — handing the failure to the model");
+          logLine("fix round " + round + ": handing the `" + failedAt + "` failure to the model");
           /* 3) feed the failure back; the reply becomes the next round's proposal */
           await sendMessage(
             "This command failed in " +
               (project ? project.root : "my home folder") +
               " (exit " +
               r.code +
-              "). Fix it — a unified diff for files that already exist, or a `### file: <path>` block for new ones.\n\n```\n$ " +
-              cmd +
+              "): `" + failedAt + "`. Fix it — a unified diff for files that already exist, or a `### file: <path>` block for new ones.\n\n```\n$ " +
+              failedAt +
               "\n" +
               tail +
               "\n```",
@@ -4834,7 +4855,7 @@ ${z.text}`,
                             jsxRuntime.jsx("span", {
                               style: { color: "var(--kelp)", fontWeight: 400 },
                               children:
-                                "— a small program on this machine, started for you by macOS at login and kept alive by it. Your room refuses calls that come from a web page, so the helper makes them on the page's behalf; it also reads files, runs commands and keeps the session library.",
+                                "— a small program on this machine, started for you by macOS at login and kept alive by it. Your room refuses calls that come from a web page, so the helper makes them on the page's behalf; it also reads files, runs commands and keeps the session library. The room link is dropped after about 75 seconds of quiet and reconnects on your next call — that pause is the reconnect, not a hang. Closing this tab asks the helper to stop; macOS starts it again on your next visit.",
                             }),
                           ],
                         }),

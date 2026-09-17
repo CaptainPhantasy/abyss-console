@@ -142,7 +142,7 @@ srv.listen(8899, "127.0.0.1", async () => {
     await ab("open", "http://127.0.0.1:8899/");
     await sleep(900);
     await ab("eval", `localStorage.setItem('deepseek_console:apikey', JSON.stringify('sk-stand-in'));
-      localStorage.setItem('deepseek_console:settings', JSON.stringify({ model:'deepseek-flash', thinking:false, effort:'high', maxTokens:8000, mcpOn:false, mcpUrl:'', mcpGate:'PLAN', mcpToken:'', helperToken:${JSON.stringify(HTOKEN)}, redact:true, budgetUsd:0, panelsOpen:true, verifyCmds:{${JSON.stringify(LAB)}:"node check.js"}, pinned:[{id:'p1', name:'guardrails.md', text:'house rule: never log secrets — password=hunter2hunter2', tokens:12}] }));
+      localStorage.setItem('deepseek_console:settings', JSON.stringify({ model:'deepseek-flash', thinking:false, effort:'high', maxTokens:8000, mcpOn:false, mcpUrl:'', mcpGate:'PLAN', mcpToken:'', helperToken:${JSON.stringify(HTOKEN)}, redact:true, budgetUsd:0, panelsOpen:true, verifyCmds:{${JSON.stringify(LAB)}:"node check.js\\necho after-check"}, pinned:[{id:'p1', name:'guardrails.md', text:'house rule: never log secrets — password=hunter2hunter2', tokens:12}] }));
       localStorage.removeItem('deepseek_console:daily'); localStorage.removeItem('deepseek_console:sessions'); location.reload(); 'x'`);
     await sleep(2200);
 
@@ -231,8 +231,10 @@ srv.listen(8899, "127.0.0.1", async () => {
     /* B1 — one click: apply, run, feed back, repeat; bounded, logged, stoppable */
     await click("apply & fix");
     await sleep(12000);
-    const loopRes = await value("(() => { const t=document.body.innerText; return JSON.stringify({ r1: /fix round 1: nothing new to apply/.test(t), r2: /fix round 2: wrote 1 file/.test(t), exit0: /→ exit 0/.test(t), green: /green; stopping after 2 round/.test(t) }); })()");
+    const loopRes = await value("(() => { const t=document.body.innerText; return JSON.stringify({ r1: /fix round 1: nothing new to apply/.test(t), r2: /fix round 2: wrote 1 file/.test(t), exit0: /→ exit 0/.test(t), green: /all 2 command\\(s\\) green — stopping after 2 round/.test(t) }); })()");
     check("B1 the fix loop applies, runs, feeds back and stops green", loopRes.r1 && loopRes.r2 && loopRes.exit0 && loopRes.green, JSON.stringify(loopRes));
+    const b15Txt = await value("(() => /`echo after-check` → exit 0/.test(document.body.innerText))()");
+    check("B15 the loop runs the verify lines one at a time", b15Txt === true, "second command reported: " + b15Txt);
     check("B1 the loop really wrote the fix to disk", readFileSync(LAB + "/check.js", "utf8").trim() === "process.exit(0);", "check.js now: " + readFileSync(LAB + "/check.js", "utf8").trim());
 
     /* B4 — a cut tool result says so */
@@ -271,6 +273,8 @@ srv.listen(8899, "127.0.0.1", async () => {
     /* a recipe is kept and put back in the composer */
     await ab("eval", "document.querySelectorAll('nav button')[3].click(); 'settings'");
     await sleep(900);
+    const lifeTxt = await value("(() => { const t=document.body.innerText; return JSON.stringify({ q75: /75 seconds/.test(t), close: /Closing this tab asks the helper/.test(t) }); })()");
+    check("A16/A17 the helper's lifecycle is stated on the page", lifeTxt.q75 && lifeTxt.close, JSON.stringify(lifeTxt));
     await typeInto("name it, e.g. house style", "house style");
     await typeInto("the instruction text", "Short sentences. Name the file before each block.");
     await click("^keep$");
