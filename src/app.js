@@ -1113,6 +1113,9 @@ function WriteReview({ blocks, onNote }) {
 }
 
 function App() {
+  const device = useDevice();
+  const [navOpen, setNavOpen] = React.useState(!1);
+  const lay = layoutFor(device, navOpen);
   const [e, t] = React.useState("chat"),
     [n, r] = React.useState(""),
     [l, o] = React.useState(""),
@@ -2971,30 +2974,31 @@ ${z.text}`,
   LIVE.model = i.model;
   return L
     ? jsxRuntime.jsxs("div", {
-        style: STYLES.app,
+        style: lay.app,
         children: [
           jsxRuntime.jsx("style", { children: APP_CSS }),
           jsxRuntime.jsxs("nav", {
-            style: STYLES.rail,
+            id: "abyss-rail",
+            style: lay.rail,
             children: [
               jsxRuntime.jsxs("div", {
-                style: STYLES.brand,
+                style: lay.brand,
                 children: [
                   jsxRuntime.jsx(Icon, { name: "mark", size: 30, strokeWidth: 1.4 }),
                   jsxRuntime.jsxs("div", {
                     children: [
-                      jsxRuntime.jsx("div", { style: STYLES.wordmark, children: "ABYSS" }),
-                      jsxRuntime.jsx("div", { style: STYLES.wordmarkSub, children: "LOCAL AI CONSOLE" }),
+                      jsxRuntime.jsx("div", { style: lay.wordmark, children: "ABYSS" }),
+                      jsxRuntime.jsx("div", { style: lay.wordmarkSub, children: "LOCAL AI CONSOLE" }),
                     ],
                   }),
                 ],
               }),
-              jsxRuntime.jsx("div", { style: STYLES.railRule }),
+              jsxRuntime.jsx("div", { style: lay.railRule }),
               jsxRuntime.jsxs("div", {
-                style: STYLES.powered,
+                style: lay.powered,
                 children: [
                   "powered by ",
-                  jsxRuntime.jsx("span", { style: STYLES.poweredName, children: "DeepSeek" }),
+                  jsxRuntime.jsx("span", { style: lay.poweredName, children: "DeepSeek" }),
                 ],
               }),
               jsxRuntime.jsx("div", { style: { height: 14 } }),
@@ -3007,8 +3011,11 @@ ${z.text}`,
                 jsxRuntime.jsxs(
                   "button",
                   {
-                    onClick: () => t(id),
-                    style: { ...STYLES.navBtn, ...(e === id ? STYLES.navBtnOn : {}) },
+                    onClick: () => {
+                      t(id);
+                      setNavOpen(!1);
+                    },
+                    style: { ...lay.navBtn, ...(e === id ? STYLES.navBtnOn : {}) },
                     children: [
                       jsxRuntime.jsx(Icon, { name: icon, size: 18, color: e === id ? "var(--sonar)" : "var(--sonar-dim)" }),
                       jsxRuntime.jsx("span", { children: label }),
@@ -3020,23 +3027,36 @@ ${z.text}`,
               ),
               jsxRuntime.jsx("div", { style: { flex: 1 } }),
               jsxRuntime.jsxs("div", {
-                style: STYLES.railFoot,
+                style: lay.railFoot,
                 children: [
-                  jsxRuntime.jsx("div", { style: STYLES.tagline, children: "DIVE DEEPER" }),
-                  jsxRuntime.jsx("div", { style: STYLES.tagline, children: "BUILD FASTER" }),
-                  jsxRuntime.jsx("div", { style: STYLES.tagline, children: "A BRIGHTER TOMORROW" }),
-                  jsxRuntime.jsx("div", { style: STYLES.railRuleThin }),
-                  jsxRuntime.jsx("div", { style: STYLES.version, children: "v0.1.0" }),
+                  jsxRuntime.jsx("div", { style: lay.tagline, children: "DIVE DEEPER" }),
+                  jsxRuntime.jsx("div", { style: lay.tagline, children: "BUILD FASTER" }),
+                  jsxRuntime.jsx("div", { style: lay.tagline, children: "A BRIGHTER TOMORROW" }),
+                  jsxRuntime.jsx("div", { style: lay.railRuleThin }),
+                  jsxRuntime.jsx("div", { style: lay.version, children: "v0.1.0" }),
                   jsxRuntime.jsxs("div", {
-                    style: STYLES.localStatus,
+                    style: lay.localStatus,
                     children: [jsxRuntime.jsx("span", { style: STYLES.statusDot }), "Local · Offline · Yours"],
                   }),
                 ],
               }),
             ],
           }),
+          device === "mobile" &&
+            jsxRuntime.jsx("button", {
+              type: "button",
+              onClick: () => setNavOpen((open) => !open),
+              "aria-label": navOpen ? "Close navigation" : "Open navigation",
+              "aria-expanded": navOpen ? "true" : "false",
+              "aria-controls": "abyss-rail",
+              style: LAYOUTS.mobile.navToggle,
+              children: navOpen ? "✕" : "☰",
+            }, "navtoggle"),
+          device === "mobile" &&
+            navOpen &&
+            jsxRuntime.jsx("div", { onClick: () => setNavOpen(!1), style: LAYOUTS.mobile.scrim }, "navscrim"),
           jsxRuntime.jsxs("main", {
-            style: STYLES.main,
+            style: lay.main,
             children: [
               Ul.warn &&
                 !Ul.inWindow &&
@@ -3094,7 +3114,7 @@ ${z.text}`,
                   children: [
                     jsxRuntime.jsxs("div", {
                       ref: Ve,
-                      style: STYLES.chatScroll,
+                      style: lay.content,
                       children: [
                         m.length === 0 &&
                           jsxRuntime.jsxs("div", {
@@ -4202,7 +4222,7 @@ ${z.text}`,
                         ],
                       }),
                     jsxRuntime.jsxs("div", {
-                      style: STYLES.inputRow,
+                      style: lay.inputRow,
                       children: [
                         jsxRuntime.jsxs("div", {
                           style: STYLES.inputShell,
@@ -4237,11 +4257,11 @@ ${z.text}`,
                         }),
                         B
                           ? jsxRuntime.jsx("button", {
-                              style: { ...STYLES.sendBtn, background: "var(--coral)" },
+                              style: { ...lay.sendBtn, background: "var(--coral)" },
                               onClick: () => Qe.current && Qe.current.abort(),
                               children: "stop",
                             })
-                          : jsxRuntime.jsx("button", { style: STYLES.sendBtn, onClick: () => sendMessage(), children: "Send ↵" }),
+                          : jsxRuntime.jsx("button", { style: lay.sendBtn, onClick: () => sendMessage(), children: "Send ↵" }),
                       ],
                     }),
                   ],
@@ -4749,16 +4769,16 @@ ${z.text}`,
                           ],
                         }),
                         jsxRuntime.jsxs("div", {
-                          style: { display: "flex", gap: 8, marginTop: 6 },
+                          style: lay.fieldRow,
                           children: [
                             jsxRuntime.jsx("input", {
-                              style: STYLES.input,
+                              style: { ...STYLES.input, minWidth: 0 },
                               placeholder: "http://127.0.0.1:13001",
                               value: i.mcpUrl,
                               onChange: (h) => K({ mcpUrl: h.target.value }),
                             }),
                             jsxRuntime.jsx("input", {
-                              style: STYLES.input,
+                              style: { ...STYLES.input, minWidth: 0 },
                               placeholder: "session token — cat ~/.gemini-for-macos/session-token",
                               value: i.mcpToken || "",
                               onChange: (h) => K({ mcpToken: h.target.value }),
@@ -5058,19 +5078,19 @@ ${z.text}`,
             ],
           }),
           jsxRuntime.jsxs("footer", {
-            style: STYLES.sonar,
+            style: lay.sonar,
             children: [
-              jsxRuntime.jsxs("div", { style: STYLES.sonarLabel, children: [
+              jsxRuntime.jsxs("div", { style: lay.sonarLabel, children: [
                 jsxRuntime.jsx("div", { style: STYLES.sonarPing }),
-                jsxRuntime.jsx("span", { style: STYLES.sonarLabelText, children: "LIVE COST METER" }),
+                jsxRuntime.jsx("span", { style: lay.sonarLabelText, children: "LIVE COST METER" }),
               ] }),
               jsxRuntime.jsx("div", {
-                style: STYLES.sonarBarWrap,
+                style: lay.sonarBarWrap,
                 title: `cache hit ratio ${$l}% — ${Ul.inWindow ? "PEAK 2x" : "off-peak"} — hits bill at $${Ul.inWindow ? PRICES[i.model].hitP : PRICES[i.model].hit}/M vs $${Ul.inWindow ? PRICES[i.model].missP : PRICES[i.model].miss}/M`,
                 children: jsxRuntime.jsx("div", { style: { ...STYLES.sonarBarHit, width: `${$l}%` } }),
               }),
               jsxRuntime.jsxs("div", {
-                style: STYLES.sonarNums,
+                style: lay.sonarNums,
                 children: [
                   jsxRuntime.jsxs("span", { children: ["hit ", jsxRuntime.jsx("b", { style: { color: "var(--foam)" }, children: y.hit.toLocaleString() })] }),
                   jsxRuntime.jsxs("span", { children: ["miss ", jsxRuntime.jsx("b", { style: { color: "var(--foam)" }, children: y.miss.toLocaleString() })] }),
@@ -5132,7 +5152,7 @@ ${z.text}`,
                     }),
                 ],
               }),
-              jsxRuntime.jsxs("div", { style: STYLES.sonarFoot, children: [
+              jsxRuntime.jsxs("div", { style: lay.sonarFoot, children: [
                 jsxRuntime.jsx(Icon, { name: "wave", size: 14, strokeWidth: 1.4, color: "var(--kelp)" }),
                 "BUILT WITH DEEPSEEK · RUNS ON YOUR MACHINE",
               ] }),
@@ -5167,40 +5187,25 @@ details>summary::-webkit-details-marker{display:none}
 `,
   STYLES = {
     app: {
-      display: "grid",
-      gridTemplateColumns: "162px 1fr",
-      gridTemplateRows: "1fr 46px",
-      gridTemplateAreas: '"rail main" "sonar sonar"',
-      height: "100vh",
       background: "transparent",
       color: "var(--foam)",
       fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif",
       fontSize: 14,
     },
-    brand: { display: "flex", gap: 9, alignItems: "center", padding: "4px 6px 2px" },
     wordmark: {
       fontFamily: "'Space Grotesk',sans-serif",
       fontWeight: 700,
-      fontSize: 21,
-      letterSpacing: "0.32em",
       color: "var(--foam)",
       lineHeight: 1.1,
     },
-    wordmarkSub: { fontSize: 8, letterSpacing: "0.2em", color: "var(--kelp)", marginTop: 2, whiteSpace: "nowrap" },
+    wordmarkSub: { color: "var(--kelp)" },
     railRule: {
-      height: 1,
-      margin: "12px 8px",
       background: "linear-gradient(90deg, rgba(79,216,235,0.45), rgba(79,216,235,0))",
     },
-    railRuleThin: { width: 46, height: 1, background: "var(--sonar)", opacity: 0.45, margin: "14px 8px 12px" },
-    powered: { fontSize: 10.5, color: "var(--kelp)", padding: "0 8px", whiteSpace: "nowrap" },
-    poweredName: { fontFamily: "'Space Grotesk',sans-serif", fontSize: 14, color: "#D3E9F4", letterSpacing: "0.04em" },
+    railRuleThin: { background: "var(--sonar)", opacity: 0.45 },
+    powered: { color: "var(--kelp)" },
+    poweredName: { fontFamily: "'Space Grotesk',sans-serif", color: "#D3E9F4" },
     rail: {
-      gridArea: "rail",
-      display: "flex",
-      flexDirection: "column",
-      gap: 6,
-      padding: "18px 10px 16px",
       background: "linear-gradient(180deg, rgba(5,11,20,0.62) 0%, rgba(5,11,20,0.38) 55%, rgba(5,11,20,0.55) 100%)",
       backdropFilter: "blur(11px)",
       borderRight: "1px solid rgba(79,216,235,0.14)",
@@ -5218,16 +5223,10 @@ details>summary::-webkit-details-marker{display:none}
       background: "transparent",
       border: "1px solid transparent",
       color: "#C4D4E0",
-      padding: "10px 12px",
       borderRadius: 10,
-      fontSize: 13.5,
       fontFamily: "'Space Grotesk',sans-serif",
       fontWeight: 500,
       position: "relative",
-      letterSpacing: "0.01em",
-      display: "flex",
-      alignItems: "center",
-      gap: 10,
       cursor: "pointer",
     },
     navBtnOn: {
@@ -5237,10 +5236,9 @@ details>summary::-webkit-details-marker{display:none}
       backdropFilter: "blur(8px)",
       boxShadow: "0 0 22px rgba(79,216,235,0.14)",
     },
-    railFoot: { display: "flex", flexDirection: "column", gap: 5, padding: "0 8px" },
-    tagline: { fontSize: 9, letterSpacing: "0.2em", color: "var(--sonar-dim)", whiteSpace: "nowrap" },
-    version: { fontSize: 10, letterSpacing: "0.14em", color: "var(--kelp)", fontFamily: "'JetBrains Mono',monospace" },
-    localStatus: { display: "flex", alignItems: "center", gap: 7, fontSize: 9.5, letterSpacing: "0.08em", color: "#A9BDCB", whiteSpace: "nowrap" },
+    tagline: { color: "var(--sonar-dim)" },
+    version: { color: "var(--kelp)", fontFamily: "'JetBrains Mono',monospace" },
+    localStatus: { color: "#A9BDCB" },
     statusDot: { width: 7, height: 7, borderRadius: "50%", background: "#3FB950", boxShadow: "0 0 9px rgba(63,185,80,0.85)" },
     dot: {
       position: "absolute",
@@ -5252,8 +5250,7 @@ details>summary::-webkit-details-marker{display:none}
       background: "var(--amber)",
       animation: "drift 1.8s infinite",
     },
-    main: { gridArea: "main", display: "flex", flexDirection: "column", overflow: "hidden" },
-    chatScroll: { flex: 1, overflowY: "auto", padding: "22px 26px" },
+    chatScroll: { flex: 1, overflowY: "auto" },
     hero: { paddingTop: "9vh", maxWidth: 720 },
     heroKicker: {
       fontFamily: "'JetBrains Mono',monospace",
@@ -5325,7 +5322,6 @@ details>summary::-webkit-details-marker{display:none}
       fontFamily: "'JetBrains Mono',monospace",
       letterSpacing: "0.06em",
     },
-    inputRow: { display: "flex", gap: 10, padding: "10px 22px 14px", alignItems: "stretch" },
     tray: {
       display: "flex",
       gap: 8,
@@ -5435,7 +5431,6 @@ details>summary::-webkit-details-marker{display:none}
       color: "#04121A",
       border: "none",
       borderRadius: 14,
-      padding: "0 26px",
       fontFamily: "'Space Grotesk',sans-serif",
       fontWeight: 700,
       fontSize: 14,
@@ -5572,32 +5567,17 @@ details>summary::-webkit-details-marker{display:none}
       fontStyle: "italic",
     },
     sonar: {
-      gridArea: "sonar",
-      display: "flex",
-      alignItems: "center",
-      gap: 16,
-      padding: "0 20px",
       borderTop: "1px solid rgba(79,216,235,0.16)",
       background: "rgba(4,9,16,0.78)",
       backdropFilter: "blur(10px)",
     },
-    sonarLabel: { display: "flex", alignItems: "center", gap: 10, minWidth: 158 },
     sonarLabelText: {
       fontFamily: "'Space Grotesk',sans-serif",
-      fontSize: 11,
-      letterSpacing: "0.18em",
       color: "#CFE0EA",
-      whiteSpace: "nowrap",
     },
     sonarFoot: {
-      display: "flex",
-      alignItems: "center",
-      gap: 8,
       fontFamily: "'JetBrains Mono',monospace",
-      fontSize: 9.5,
-      letterSpacing: "0.2em",
       color: "var(--kelp)",
-      whiteSpace: "nowrap",
     },
     sonarPing: {
       width: 8,
@@ -5608,12 +5588,9 @@ details>summary::-webkit-details-marker{display:none}
       animation: "ping 2.2s infinite",
     },
     sonarBarWrap: {
-      width: 190,
-      height: 7,
       background: "rgba(120,180,210,0.16)",
       borderRadius: 99,
       overflow: "hidden",
-      flexShrink: 0,
     },
     sonarBarHit: {
       height: "100%",
@@ -5623,15 +5600,225 @@ details>summary::-webkit-details-marker{display:none}
     },
     sonarNums: {
       display: "flex",
-      gap: 15,
       fontFamily: "'JetBrains Mono',monospace",
-      fontSize: 11,
       color: "var(--kelp)",
       whiteSpace: "nowrap",
       flex: 1,
       alignItems: "center",
     },
   };
+/* Three independent device verticals — phone, tablet, desktop. Every layout
+   value below is stated per device, so no device inherits a layout from
+   another and no width media query is needed. Colours, fonts and borders stay
+   in STYLES; grid placement, box metrics and rail internals live here.
+   Thresholds match this console's own window presets: phone 390, tablet 820,
+   desktop 1280. */
+function readDevice() {
+  const w = window.innerWidth;
+  return w < 768 ? "mobile" : w < 1100 ? "tablet" : "desktop";
+}
+function markDevice(d) {
+  if (document.documentElement.dataset.device !== d) document.documentElement.dataset.device = d;
+}
+function useDevice() {
+  const [device, setDevice] = React.useState(() => {
+    const d = readDevice();
+    markDevice(d);
+    return d;
+  });
+  React.useEffect(() => {
+    const onResize = () => {
+      const d = readDevice();
+      markDevice(d);
+      setDevice(d);
+    };
+    window.addEventListener("resize", onResize, { passive: true });
+    window.addEventListener("orientationchange", onResize, { passive: true });
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onResize);
+    };
+  }, []);
+  return device;
+}
+markDevice(readDevice());
+const LAYOUTS = {
+  /* 1100px and wider — 162px rail beside the conversation, 46px live cost bar. */
+  desktop: {
+    app: {
+      display: "grid",
+      gridTemplateColumns: "162px 1fr",
+      gridTemplateRows: "1fr 46px",
+      gridTemplateAreas: '"rail main" "sonar sonar"',
+      height: "100vh",
+    },
+    rail: { gridArea: "rail", display: "flex", flexDirection: "column", gap: 6, padding: "18px 10px 16px" },
+    main: { gridArea: "main", display: "flex", flexDirection: "column", overflow: "hidden" },
+    content: { padding: "22px 26px" },
+    sonar: { gridArea: "sonar", display: "flex", alignItems: "center", gap: 16, padding: "0 20px" },
+    brand: { display: "flex", gap: 9, alignItems: "center", padding: "4px 6px 2px" },
+    wordmark: { fontSize: 21, letterSpacing: "0.32em" },
+    wordmarkSub: { fontSize: 8, letterSpacing: "0.2em", marginTop: 2, whiteSpace: "nowrap" },
+    railRule: { height: 1, margin: "12px 8px" },
+    railRuleThin: { width: 46, height: 1, margin: "14px 8px 12px" },
+    powered: { display: "block", fontSize: 10.5, padding: "0 8px", whiteSpace: "nowrap" },
+    poweredName: { fontSize: 14, letterSpacing: "0.04em" },
+    navBtn: { display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", fontSize: 13.5, letterSpacing: "0.01em" },
+    railFoot: { display: "flex", flexDirection: "column", gap: 5, padding: "0 8px" },
+    tagline: { fontSize: 9, letterSpacing: "0.2em", whiteSpace: "nowrap" },
+    version: { fontSize: 10, letterSpacing: "0.14em" },
+    localStatus: { display: "flex", alignItems: "center", gap: 7, fontSize: 9.5, letterSpacing: "0.08em", whiteSpace: "nowrap" },
+    sonarLabel: { display: "flex", alignItems: "center", gap: 10, minWidth: 158 },
+    sonarLabelText: { display: "inline", fontSize: 11, letterSpacing: "0.18em", whiteSpace: "nowrap" },
+    sonarBarWrap: { width: 190, height: 7, flexShrink: 0 },
+    sonarNums: { gap: 15, fontSize: 11 },
+    sonarFoot: { display: "flex", alignItems: "center", gap: 8, fontSize: 9.5, letterSpacing: "0.2em", whiteSpace: "nowrap" },
+    fieldRow: { display: "flex", gap: 8, marginTop: 6 },
+    inputRow: { display: "flex", gap: 10, padding: "10px 22px 14px", alignItems: "stretch" },
+    sendBtn: { padding: "0 26px" },
+  },
+  /* 768–1099px — 132px rail with smaller type, tighter content, and a two-row
+     cost bar so the "built with" flourish still fits without dropping a number. */
+  tablet: {
+    app: {
+      display: "grid",
+      gridTemplateColumns: "132px 1fr",
+      gridTemplateRows: "1fr 62px",
+      gridTemplateAreas: '"rail main" "sonar sonar"',
+      height: "100vh",
+    },
+    rail: { gridArea: "rail", display: "flex", flexDirection: "column", gap: 5, padding: "14px 8px 12px" },
+    main: { gridArea: "main", display: "flex", flexDirection: "column", overflow: "hidden" },
+    content: { padding: "18px 16px" },
+    sonar: { gridArea: "sonar", display: "grid", gridTemplateColumns: "auto minmax(0,1fr)", gridTemplateRows: "auto auto", columnGap: 12, rowGap: 3, alignItems: "center", padding: "7px 15px" },
+    brand: { display: "flex", gap: 7, alignItems: "center", padding: "3px 4px 2px" },
+    wordmark: { fontSize: 17, letterSpacing: "0.24em" },
+    wordmarkSub: { fontSize: 7, letterSpacing: "0.14em", marginTop: 2, whiteSpace: "nowrap" },
+    railRule: { height: 1, margin: "10px 6px" },
+    railRuleThin: { width: 34, height: 1, margin: "11px 6px 9px" },
+    powered: { display: "block", fontSize: 9, padding: "0 6px", whiteSpace: "nowrap" },
+    poweredName: { fontSize: 12, letterSpacing: "0.03em" },
+    navBtn: { display: "flex", alignItems: "center", gap: 7, padding: "9px 8px", fontSize: 11.5, letterSpacing: "0.01em" },
+    railFoot: { display: "flex", flexDirection: "column", gap: 4, padding: "0 6px" },
+    tagline: { fontSize: 8, letterSpacing: "0.16em", whiteSpace: "nowrap" },
+    version: { fontSize: 9, letterSpacing: "0.12em" },
+    localStatus: { display: "flex", alignItems: "center", gap: 6, fontSize: 8.5, letterSpacing: "0.06em", whiteSpace: "nowrap" },
+    sonarLabel: { gridArea: "1 / 1 / 2 / 2", display: "flex", alignItems: "center", gap: 8 },
+    sonarLabelText: { display: "inline", fontSize: 10, letterSpacing: "0.14em", whiteSpace: "nowrap" },
+    sonarBarWrap: { gridArea: "1 / 2 / 2 / 3", width: "100%", height: 6, flexShrink: 0 },
+    sonarNums: { gridArea: "2 / 2 / 3 / 3", display: "flex", justifyContent: "flex-end", gap: 12, fontSize: 9.5 },
+    sonarFoot: { gridArea: "2 / 1 / 3 / 2", display: "flex", alignItems: "center", gap: 6, fontSize: 8.5, letterSpacing: "0.12em", whiteSpace: "nowrap" },
+    fieldRow: { display: "flex", gap: 8, marginTop: 6 },
+    inputRow: { display: "flex", gap: 10, padding: "10px 16px 12px", alignItems: "stretch" },
+    sendBtn: { padding: "0 22px" },
+  },
+  /* phone — one column; the rail leaves the grid and slides in as a drawer. */
+  mobile: {
+    app: {
+      display: "grid",
+      gridTemplateColumns: "1fr",
+      gridTemplateRows: "1fr 44px",
+      gridTemplateAreas: '"main" "sonar"',
+      height: "100vh",
+    },
+    rail: {
+      gridArea: "auto",
+      position: "fixed",
+      top: 0,
+      left: 0,
+      bottom: 0,
+      width: 262,
+      zIndex: 60,
+      display: "flex",
+      flexDirection: "column",
+      gap: 6,
+      padding: "58px 10px 14px",
+      overflowY: "auto",
+      transform: "translateX(-100%)",
+      visibility: "hidden",
+      transition: "transform .24s ease, visibility 0s linear .24s",
+    },
+    railOpen: {
+      transform: "translateX(0)",
+      visibility: "visible",
+      transition: "transform .24s ease",
+    },
+    main: { gridArea: "main", display: "flex", flexDirection: "column", overflow: "hidden", paddingTop: 48 },
+    content: { padding: "14px 12px" },
+    sonar: { gridArea: "sonar", display: "flex", flexWrap: "wrap", alignItems: "center", gap: "2px 8px", padding: "4px 12px" },
+    brand: { display: "flex", gap: 9, alignItems: "center", padding: "4px 6px 2px" },
+    wordmark: { fontSize: 19, letterSpacing: "0.28em" },
+    wordmarkSub: { fontSize: 8, letterSpacing: "0.18em", marginTop: 2, whiteSpace: "nowrap" },
+    railRule: { height: 1, margin: "12px 8px" },
+    railRuleThin: { width: 40, height: 1, margin: "14px 8px 12px" },
+    powered: { display: "block", fontSize: 10, padding: "0 8px", whiteSpace: "nowrap" },
+    poweredName: { fontSize: 13.5, letterSpacing: "0.04em" },
+    navBtn: { display: "flex", alignItems: "center", gap: 10, padding: "12px 12px", fontSize: 14, letterSpacing: "0.01em" },
+    railFoot: { display: "flex", flexDirection: "column", gap: 5, padding: "0 8px" },
+    tagline: { fontSize: 9, letterSpacing: "0.2em", whiteSpace: "nowrap" },
+    version: { fontSize: 10, letterSpacing: "0.14em" },
+    localStatus: { display: "flex", alignItems: "center", gap: 7, fontSize: 9.5, letterSpacing: "0.08em", whiteSpace: "nowrap" },
+    sonarLabel: { display: "flex", alignItems: "center", gap: 6, minWidth: 0 },
+    sonarLabelText: { display: "none" },
+    sonarBarWrap: { width: "auto", height: 6, flex: 1 },
+    sonarNums: { gap: 7, fontSize: 9, flexBasis: "100%" },
+    sonarFoot: { display: "none" },
+    fieldRow: { display: "grid", gridTemplateColumns: "1fr", gap: 8, marginTop: 6 },
+    inputRow: { display: "flex", flexWrap: "wrap", gap: 8, padding: "8px 12px 10px", alignItems: "stretch" },
+    sendBtn: { padding: "12px 0", flexBasis: "100%", width: "100%" },
+    navToggle: {
+      position: "fixed",
+      top: 10,
+      left: 10,
+      zIndex: 70,
+      width: 38,
+      height: 38,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontSize: 15,
+      lineHeight: 1,
+      borderRadius: 10,
+      border: "1px solid rgba(79,216,235,0.38)",
+      background: "rgba(6,14,26,0.84)",
+      color: "var(--foam)",
+      backdropFilter: "blur(10px)",
+    },
+    scrim: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 55, background: "rgba(3,8,16,0.62)" },
+  },
+};
+/* Merges the chosen vertical's layout over the shared visual styling. The
+   layout always wins, so one device's numbers can never leak into another's. */
+function layoutFor(device, navOpen) {
+  const d = LAYOUTS[device] || LAYOUTS.desktop;
+  const merge = (key) => ({ ...STYLES[key], ...d[key] });
+  return {
+    app: merge("app"),
+    rail: { ...merge("rail"), ...(device === "mobile" && navOpen ? d.railOpen : null) },
+    main: merge("main"),
+    content: { ...STYLES.chatScroll, ...d.content },
+    sonar: merge("sonar"),
+    brand: merge("brand"),
+    wordmark: merge("wordmark"),
+    wordmarkSub: merge("wordmarkSub"),
+    railRule: merge("railRule"),
+    railRuleThin: merge("railRuleThin"),
+    powered: merge("powered"),
+    poweredName: merge("poweredName"),
+    navBtn: merge("navBtn"),
+    railFoot: merge("railFoot"),
+    tagline: merge("tagline"),
+    version: merge("version"),
+    localStatus: merge("localStatus"),
+    sonarLabel: merge("sonarLabel"),
+    sonarLabelText: merge("sonarLabelText"),
+    sonarBarWrap: merge("sonarBarWrap"),
+    sonarNums: merge("sonarNums"),
+    sonarFoot: merge("sonarFoot"),
+    inputRow: merge("inputRow"),
+    sendBtn: merge("sendBtn"),
+  };
+}
 document.documentElement.classList.add("abyss-art");
 document.body.classList.add("abyss-art");
 document.body.style.margin = "0";
